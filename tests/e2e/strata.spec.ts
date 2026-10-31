@@ -248,6 +248,88 @@ test.describe("Strata", () => {
     expect(comfy.prompts).toHaveLength(0);
   });
 
+  test("one-click setup from Model Manager installs what is missing and starts ComfyUI", async ({ page }) => {
+    const comfy = await mockComfy(page, {
+      setupReport: {
+        running: null,
+        ready: false,
+        nodes: [{ id: "ipadapter-plus", name: "ComfyUI IPAdapter Plus", installed: false }],
+        models: [
+          { id: "rv51", name: "Realistic Vision 5.1 (SD1.5)", bytes: 2132625894, installed: false, convert: false, localCopy: "D:\\Other\\ComfyUI\\models\\checkpoints\\Realistic_Vision_V5.1_fp16-no-ema.safetensors" },
+          { id: "cn-depth-sd15", name: "ControlNet Depth (SD1.5)", bytes: 722601100, installed: false, convert: false, localCopy: null },
+          { id: "rv51-unet", name: "Realistic Vision 5.1 UNet", bytes: 0, installed: false, convert: true, localCopy: null },
+        ],
+        downloadBytes: 722601100,
+      },
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Model manager" }).click();
+    const setup = page.getByRole("region", { name: "Setup" });
+    await expect(setup).toContainText("0 of 3 installed · 1 to download (723 MB) · 1 found on this machine");
+    await expect(setup).toContainText("Will install ComfyUI IPAdapter Plus, start ComfyUI with --cpu, reuse 1 model already on this machine, download 1 model (723 MB), make 1 low-memory copy.");
+    await setup.getByRole("button", { name: "Set up everything" }).click();
+    await expect(setup.getByRole("list", { name: "Setup progress" })).toBeVisible();
+    await expect(page.getByText("Setup complete: Strata and ComfyUI are ready.")).toBeVisible({ timeout: 20_000 });
+    await expect(setup).toContainText("Everything is ready");
+    expect(comfy.setupActions).toEqual(["run"]);
+  });
+
+  test("an offline ComfyUI is started from Strata with the right flags", async ({ page }) => {
+    const comfy = await mockComfy(page, { online: false });
+    await page.goto("/");
+    await uploadBase(page);
+    await page.getByRole("button", { name: "Render", exact: true }).click();
+    await inspector(page).getByRole("button", { name: "Start", exact: true }).click();
+    await expect(page.getByText(/Started at http:\/\/127\.0\.0\.1:8188 with .*--cpu/)).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("aside").first().getByText("ComfyUI connected")).toBeVisible();
+    await expect(inspector(page).getByText("ComfyUI is offline.")).toHaveCount(0);
+    expect(comfy.setupActions).toEqual(["start"]);
+  });
+
+  test("Settings auto-detect fills in the ComfyUI folder and URL", async ({ page }) => {
+    const comfy = await mockComfy(page, { setupReport: { config: { comfyUrl: "http://127.0.0.1:8189", comfyPath: "E:\\AI\\ComfyUI_windows_portable\\ComfyUI" } } });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Auto-detect" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByPlaceholder("http://127.0.0.1:8188")).toHaveValue("http://127.0.0.1:8189");
+    await expect(dialog.getByPlaceholder("D:\\ComfyUI")).toHaveValue("E:\\AI\\ComfyUI_windows_portable\\ComfyUI");
+    await expect(page.getByText(/Found ComfyUI at D:\\ComfyUI, running at/)).toBeVisible();
+    expect(comfy.setupActions).toEqual(["detect"]);
+  });
+
+  test("a ComfyUI started with a flag that breaks Strata is restarted with plain --cpu", async ({ page }) => {
+    const comfy = await mockComfy(page, { argv: ["main.py", "--cpu", "--fp16-unet"] });
+    await page.goto("/");
+    await uploadBase(page);
+    await page.getByRole("button", { name: "Render", exact: true }).click();
+    await inspector(page).getByRole("button", { name: "Restart with plain --cpu" }).click();
+    await expect(page.getByText(/Started at .*--cpu/)).toBeVisible({ timeout: 20_000 });
+    expect(comfy.setupActions).toEqual(["restart"]);
+  });
+
+  test("a design style sets coordinated finishes that flow into budget and programme checks", async ({ page }) => {
+    await mockComfy(page);
+    await page.goto("/");
+    await uploadBase(page);
+    const styles = inspector(page).getByRole("group", { name: "Design style" });
+    await styles.getByRole("button", { name: "Warm tropical" }).click();
+    await expect(styles.getByRole("button", { name: "Warm tropical" })).toHaveAttribute("aria-pressed", "true");
+    await expect(card(page, "Floor").locator("select")).toHaveValue("spc-plank");
+    await expect(card(page, "Walls").locator("select")).toHaveValue("wpc-fluted-panel");
+    await expect(card(page, "Ceiling").locator("select")).toHaveValue("aluminium-linear-ceiling");
+
+    await page.getByRole("button", { name: "Project", exact: true }).click();
+    await inspector(page).locator('label:has-text("Client budget") input').fill("50000");
+    await expect(inspector(page).getByText("Over budget")).toBeVisible();
+    await expect(inspector(page).getByText(/Indicative programme/)).toBeVisible();
+
+    await page.getByRole("button", { name: "Proposal" }).first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("list", { name: "Proposal checks" })).toContainText("over the ₱50,000 budget");
+    await expect(dialog.getByRole("list", { name: "Programme" }).getByRole("listitem")).toHaveCount(3);
+  });
+
   test("dropping a file onto a drop zone clears the dimmed drag state", async ({ page }) => {
     await mockComfy(page);
     await page.goto("/");

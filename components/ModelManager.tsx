@@ -6,12 +6,14 @@ import { refreshDoctor, toast, useStore } from "@/lib/store";
 import { formatBytes, type CatalogModel, type CustomNodePack } from "@/lib/models-catalog";
 import type { PipelineProfile } from "@/lib/types";
 import { Button, cx } from "./ui";
+import { SetupPanel } from "./SetupPanel";
 
 interface JobView {
   status: "running" | "done" | "error" | "cancelled";
   received: number;
   total: number;
   speed: number;
+  phase?: "download" | "copy" | "verify";
   error?: string;
   log: string[];
 }
@@ -23,6 +25,7 @@ export function ModelManager() {
   const currentProfile = useStore((s) => s.project?.settings.profile ?? s.doctor?.recommendedProfile ?? "lite");
   const [profile, setProfile] = useState<PipelineProfile>(currentProfile);
   const [data, setData] = useState<{ comfyPath: string; models: ModelRow[]; nodes: NodeRow[] } | null>(null);
+  const [setupKey, setSetupKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -33,8 +36,11 @@ export function ModelManager() {
       if (!alive) return;
       setData(json);
       const running = [...json.models, ...json.nodes].some((x: ModelRow | NodeRow) => x.job?.status === "running");
-      // A finished download changes ComfyUI's model lists.
-      if (wasRunning && !running) void refreshDoctor(true);
+      // A finished download changes ComfyUI's model lists, and what the setup panel reports.
+      if (wasRunning && !running) {
+        void refreshDoctor(true);
+        setSetupKey((k) => k + 1);
+      }
       wasRunning = running;
     };
     void load();
@@ -59,6 +65,7 @@ export function ModelManager() {
 
   return (
     <div className="space-y-5">
+      <SetupPanel refreshKey={setupKey} />
       {!data.comfyPath && (
         <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[13px] text-amber-900">
           <AlertTriangle size={16} className="mt-px shrink-0" />
@@ -154,14 +161,15 @@ export function ModelManager() {
 function Progress({ job }: { job: JobView }) {
   const pct = job.total ? (job.received / job.total) * 100 : 0;
   const eta = job.speed > 0 ? (job.total - job.received) / job.speed : 0;
+  const what = job.phase === "verify" ? "Checking SHA-256 · " : job.phase === "copy" ? "Copying from this machine · " : "";
   return (
     <div className="mt-2">
       <div className="h-1.5 overflow-hidden rounded-full bg-paper">
-        <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+        <div className={cx("h-full rounded-full transition-all", job.phase === "verify" ? "bg-ok" : "bg-accent")} style={{ width: `${pct}%` }} />
       </div>
       <div className="mt-1 flex justify-between text-[11px] tabular-nums text-mute">
-        <span>{formatBytes(job.received)} / {formatBytes(job.total)} · {pct.toFixed(0)}%</span>
-        <span className="truncate pl-3">{job.speed ? `${formatBytes(job.speed)}/s${eta ? ` · ${Math.ceil(eta / 60)} min left` : ""}` : (job.log.at(-1) ?? "starting…")}</span>
+        <span>{what}{formatBytes(job.received)} / {formatBytes(job.total)} · {pct.toFixed(0)}%</span>
+        <span className="truncate pl-3">{job.phase === "download" && job.speed ? `${formatBytes(job.speed)}/s${eta ? ` · ${Math.ceil(eta / 60)} min left` : ""}` : (job.log.at(-1) ?? "starting…")}</span>
       </div>
     </div>
   );

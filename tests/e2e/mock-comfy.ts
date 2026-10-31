@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Page, Route } from "@playwright/test";
+import type { SetupJobView, SetupReport, SetupStep } from "../../lib/setup-shared";
 
 type ApiNode = { class_type: string; inputs: Record<string, unknown> };
 type Graph = Record<string, ApiNode>;
@@ -17,6 +18,37 @@ export interface MockOptions {
   historyLag?: number;
   /** Extra model files, keyed "Node.input" (the fixture only has what an early install had). */
   installed?: Record<string, string[]>;
+  /** What /api/setup reports; defaults to a ready machine. */
+  setupReport?: Partial<SetupReport>;
+}
+
+const READY_REPORT: SetupReport = {
+  config: { comfyUrl: "http://127.0.0.1:8188", comfyPath: "D:\\ComfyUI" },
+  install: { path: "D:\\ComfyUI", kind: "manual", python: "D:\\ComfyUI\\.venv\\Scripts\\python.exe", gpuTorch: false, canStart: true },
+  others: [],
+  running: { url: "http://127.0.0.1:8188", version: "0.42.0", device: "cpu", vramTotal: 0, ramTotal: 8e9, argv: ["main.py", "--cpu"], issues: [], baseDir: "D:\\ComfyUI", queue: 0, local: true },
+  gpu: false,
+  profile: "lite",
+  lowMemory: true,
+  ramTotal: 8e9,
+  launchArgs: ["--listen", "127.0.0.1", "--port", "8188", "--disable-auto-launch", "--cpu"],
+  nodes: [{ id: "ipadapter-plus", name: "ComfyUI IPAdapter Plus", installed: true }],
+  models: [{ id: "rv51", name: "Realistic Vision 5.1 (SD1.5)", bytes: 2132625894, installed: true, convert: false, localCopy: null }],
+  downloadBytes: 0,
+  diskFree: 400e9,
+  ready: true,
+};
+
+/** A setup job that advances one step per poll, like the real one does over minutes. */
+function playback(scope: SetupJobView["scope"]): () => SetupJobView {
+  const ids: SetupStep["id"][] = scope === "full" ? ["detect", "nodes", "server", "models", "convert"] : ["detect", "server"];
+  const labels: Record<SetupStep["id"], string> = { detect: "Find ComfyUI and this machine's hardware", nodes: "Custom nodes", server: "Start ComfyUI with the right flags", models: "Models", convert: "Low-memory copies" };
+  let polls = 0;
+  return () => {
+    const done = Math.min(ids.length, polls++);
+    const steps = ids.map((id, i): SetupStep => ({ id, label: labels[id], status: i < done ? "done" : i === done ? "running" : "pending", detail: i < done ? (id === "server" ? "Started at http://127.0.0.1:8188 with --port 8188 --disable-auto-launch --cpu" : "All present") : undefined }));
+    return { scope, status: done === ids.length ? "done" : "running", steps, startedAt: 0 };
+  };
 }
 
 /** A complete Lite install, as Model Manager leaves it (depth lock, IP-Adapter Plus, split UNet). */
@@ -42,19 +74,47 @@ function withModels(extra: Record<string, string[]>) {
 
 /**
  * Stands in for ComfyUI behind Strata's own API routes (/api/doctor, /api/comfy/*, /api/events,
- * /api/embeds). Every submitted graph is recorded in `prompts` so tests can assert on what the
- * app actually sent; every job "completes" immediately with a real image.
+ * /api/embeds, /api/setup). Every submitted graph is recorded in `prompts` and every setup
+ * action in `setupActions`, so tests can assert on what the app actually sent; every job
+ * "completes" immediately with a real image.
  */
 export async function mockComfy(page: Page, opts: MockOptions = {}) {
   const prompts: Graph[] = [];
   const promoted = new Set<string>();
   const frees: unknown[] = [];
   const lag = new Map<string, number>();
-  const objectInfo = opts.installed ? withModels(opts.installed) : OBJECT_INFO;
   const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+  const objectInfo = opts.installed ? withModels(opts.installed) : OBJECT_INFO;
+  const setupActions: string[] = [];
+  let online = opts.online !== false;
+  let report: SetupReport = { ...READY_REPORT, ...opts.setupReport };
+  let job: (() => SetupJobView) | null = null;
+  let lastJob: SetupJobView | null = null;
+  await page.route("**/api/setup**", async (route) => {
+    const req = route.request();
+    if (req.method() === "POST") {
+      const { action } = req.postDataJSON() as { action: string };
+      setupActions.push(action);
+      if (action === "detect") return json(route, { report });
+      job = playback(action === "run" ? "full" : "server");
+      lastJob = job();
+      return json(route, { job: lastJob });
+    }
+    if (req.method() === "DELETE") return json(route, { ok: true });
+    if (job) {
+      lastJob = job();
+      // Once a job finishes, the machine is set up and ComfyUI is running.
+      if (lastJob.status === "done") {
+        job = null;
+        report = READY_REPORT;
+        online = true;
+      }
+    }
+    return new URL(req.url()).searchParams.has("job") ? json(route, { job: lastJob }) : json(route, { report, job: lastJob });
+  });
 
   await page.route("**/api/doctor**", (route) =>
-    opts.online === false
+    !online
       ? json(route, { online: false, comfyUrl: "http://127.0.0.1:8188", comfyPath: "D:\\ComfyUI", error: "ECONNREFUSED" })
       : json(route, {
           online: true,
@@ -122,7 +182,7 @@ export async function mockComfy(page: Page, opts: MockOptions = {}) {
     if (sub === "queue") return json(route, { queue_running: [], queue_pending: [] });
     return json(route, {});
   });
-  return { prompts, frees };
+  return { prompts, frees, setupActions };
 }
 
 /** Node class types of the n-th submitted graph. */

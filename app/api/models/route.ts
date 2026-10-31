@@ -1,6 +1,7 @@
-import { getConfig } from "@/lib/server/config";
+import { comfyCandidates, getConfig } from "@/lib/server/config";
 import { MODEL_CATALOG, CUSTOM_NODES } from "@/lib/models-catalog";
 import { cancelJob, getJob, isInstalled, partialBytes, startConversion, startModelDownload, startNodeInstall } from "@/lib/server/downloads";
+import { localRoots } from "@/lib/server/setup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
       if (!isInstalled(comfyPath, source)) return Response.json({ error: `Install "${source.name}" first.` }, { status: 400 });
       startConversion(comfyPath, m, source);
     } else {
-      startModelDownload(comfyPath, m);
+      startModelDownload(comfyPath, m, { localRoots: localRoots(comfyPath, comfyCandidates()) });
     }
     return Response.json({ ok: true, job: getJob(m.id) });
   }

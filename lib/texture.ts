@@ -78,6 +78,83 @@ export function analyzeTexture(px: PixelData): TextureAnalysis {
   };
 }
 
+/**
+ * Evens out the lighting of a reference photo in place: shadows, vignetting and light falloff
+ * across the sample are divided out so IP-Adapter picks up the material's colour and texture,
+ * not the light it was photographed in (the high-pass "texture equalization" used to prepare
+ * albedo maps, as in ComfyUI-TextureAlchemy's Texture Equalizer). The illumination estimate is
+ * the luminance blurred over `radius` (a fraction of the short side); detail smaller than that
+ * (grain, veining, grout) is kept. One gain per pixel scales R, G and B alike, so hue and
+ * saturation are preserved.
+ *
+ * The correction is adaptive: its strength follows how uneven that illumination field is, so an
+ * evenly lit catalogue photo passes through untouched (large-scale patterns such as marble vein
+ * clusters would otherwise be flattened) and a phone photo with a shadow or vignette is fixed.
+ * Returns the strength applied, 0..1.
+ */
+export function equalizeLighting(px: PixelData, opts: { radius?: number } = {}): number {
+  const { data } = px;
+  const n = px.width * px.height;
+  const { light, mean, spread } = illumination(px, opts.radius);
+  const strength = Math.min(1, Math.max(0, (spread - SPREAD_EVEN) / (SPREAD_FULL - SPREAD_EVEN)));
+  if (strength === 0) return 0;
+  for (let i = 0; i < n; i++) {
+    // Clamped so a deep shadow or a specular hot spot is softened rather than blown out.
+    const gain = 1 + strength * (Math.min(1.8, Math.max(0.6, mean / Math.max(1, light[i]))) - 1);
+    for (let c = 0; c < 3; c++) data[i * 4 + c] = Math.min(255, Math.max(0, Math.round(data[i * 4 + c] * gain)));
+  }
+  return Math.round(strength * 100) / 100;
+}
+
+/** Illumination spread (p95 - p5) / mean at which equalization starts, and reaches full strength. */
+const SPREAD_EVEN = 0.15;
+const SPREAD_FULL = 0.5;
+
+/** Low-frequency luminance (the light falling on the sample), its mean and its relative spread. */
+export function illumination(px: PixelData, radius = 0.25): { light: Float32Array; mean: number; spread: number } {
+  const { data, width: w, height: h } = px;
+  const n = w * h;
+  const lum = new Float32Array(n);
+  let mean = 0;
+  for (let i = 0; i < n; i++) {
+    lum[i] = 0.2126 * data[i * 4] + 0.7152 * data[i * 4 + 1] + 0.0722 * data[i * 4 + 2];
+    mean += lum[i];
+  }
+  mean /= n;
+  const r = Math.max(2, Math.round(radius * Math.min(w, h)));
+  let light: Float32Array = lum;
+  for (let pass = 0; pass < 3; pass++) light = boxBlur(light, w, h, r); // ≈ Gaussian
+  const G = 24;
+  const sample = Array.from({ length: G * G }, (_, k) => light[Math.floor((((k / G) | 0) + 0.5) * (h / G)) * w + Math.floor(((k % G) + 0.5) * (w / G))]).sort((a, b) => a - b);
+  return { light, mean, spread: (sample[Math.floor(G * G * 0.95)] - sample[Math.floor(G * G * 0.05)]) / Math.max(1, mean) };
+}
+
+/** Separable box blur with clamped edges, O(pixels) regardless of radius. */
+function boxBlur(src: Float32Array, w: number, h: number, r: number): Float32Array {
+  const tmp = new Float32Array(w * h);
+  const out = new Float32Array(w * h);
+  const norm = 1 / (2 * r + 1);
+  const at = (i: number, max: number) => (i < 0 ? 0 : i > max ? max : i);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let acc = 0;
+    for (let k = -r; k <= r; k++) acc += src[row + at(k, w - 1)];
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = acc * norm;
+      acc += src[row + at(x + r + 1, w - 1)] - src[row + at(x - r, w - 1)];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let acc = 0;
+    for (let k = -r; k <= r; k++) acc += tmp[at(k, h - 1) * w + x];
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = acc * norm;
+      acc += tmp[at(y + r + 1, h - 1) * w + x] - tmp[at(y - r, h - 1) * w + x];
+    }
+  }
+  return out;
+}
+
 /** How much a 1-D edge profile is dominated by sharp, repeated peaks (grout lines). */
 function peakiness(profile: Float32Array): number {
   const v = Array.from(profile).slice(1, -1);

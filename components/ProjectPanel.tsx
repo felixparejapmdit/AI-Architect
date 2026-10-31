@@ -5,8 +5,9 @@ import { patchProject, setZone, useStore } from "@/lib/store";
 import { ZONES, isWetZone } from "@/lib/buckets";
 import { computeBoq, measuredAreas, php } from "@/lib/boq";
 import { proposalSelections } from "@/lib/pipeline";
+import { buildProgramme, spanLabel } from "@/lib/programme";
 import type { ProjectMeta, ZoneType } from "@/lib/types";
-import { Button, Field, NumberInput, Section, Select, TextInput } from "./ui";
+import { Button, cx, Field, NumberInput, Section, Select, TextInput } from "./ui";
 
 export function ProjectPanel() {
   const project = useStore((s) => s.project!);
@@ -14,6 +15,7 @@ export function ProjectPanel() {
   const m = project.meta;
   const set = (patch: Partial<ProjectMeta>) => patchProject((d) => void Object.assign(d.meta, patch));
   const boq = computeBoq(m, proposalSelections());
+  const programme = buildProgramme(boq);
   const areas = measuredAreas(m);
 
   return (
@@ -33,6 +35,14 @@ export function ProjectPanel() {
         <Field label="Prepared by">
           <TextInput value={m.preparedBy} onChange={(e) => set({ preparedBy: e.target.value })} placeholder="Your name / firm" />
         </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Client budget" hint="Incl. VAT; 0 = not set">
+            <NumberInput value={m.budgetPhp ?? 0} min={0} step={10000} suffix="₱" onChange={(v) => set({ budgetPhp: Math.max(0, v) })} />
+          </Field>
+          <Field label="Target handover">
+            <TextInput type="date" aria-label="Target handover" value={m.targetDate ?? ""} onChange={(e) => set({ targetDate: e.target.value })} />
+          </Field>
+        </div>
       </Section>
 
       <Section title="Space">
@@ -79,6 +89,16 @@ export function ProjectPanel() {
               <div className="flex justify-between text-[13px] font-semibold">
                 <dt>Estimated total</dt>
                 <dd className="tabular-nums">{php(boq.total, 0)}</dd>
+              </div>
+              {!!m.budgetPhp && (
+                <div className={cx("flex justify-between", boq.total > m.budgetPhp ? "font-medium text-danger" : "text-ok")}>
+                  <dt>{boq.total > m.budgetPhp ? "Over budget" : "Under budget"}</dt>
+                  <dd className="tabular-nums">{php(Math.abs(m.budgetPhp - boq.total), 0)}</dd>
+                </div>
+              )}
+              <div className="flex justify-between text-mute">
+                <dt>Indicative programme</dt>
+                <dd className="tabular-nums">{spanLabel(programme.totalDays)} from order</dd>
               </div>
             </>
           )}

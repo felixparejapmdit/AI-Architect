@@ -161,6 +161,17 @@ function Editor({ initial, onDone }: { initial: Material; onDone: () => void }) 
           <NumberInput value={m.wastagePct} min={0} max={40} suffix="%" onChange={(v) => set({ wastagePct: v })} />
         </Field>
       </div>
+      <div className="grid grid-cols-3 gap-3">
+        <Field label={`Crew output / day`} hint="One installer + helper">
+          <NumberInput value={m.crewRate ?? 0} min={0} step={m.unit === "pc" ? 1 : 2} suffix={m.unit} onChange={(v) => set({ crewRate: v > 0 ? v : undefined })} />
+        </Field>
+        <Field label="Lead time" hint="Order to site">
+          <NumberInput value={m.leadDays ?? 0} min={0} suffix="days" onChange={(v) => set({ leadDays: Math.max(0, Math.round(v)) })} />
+        </Field>
+        <Field label="Cure / set" hint="Before next trade">
+          <NumberInput value={m.cureDays ?? 0} min={0} suffix="days" onChange={(v) => set({ cureDays: Math.max(0, Math.round(v)) })} />
+        </Field>
+      </div>
       <Field label="Render prompt" hint="How the diffusion model should describe this finish.">
         <TextInput value={m.prompt} onChange={(e) => set({ prompt: e.target.value })} />
       </Field>

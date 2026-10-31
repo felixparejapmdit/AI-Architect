@@ -22,37 +22,40 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the pipeline and how it dep
 ## Requirements
 
 - Node.js 20+ (developed on 24)
-- ComfyUI **0.42 or newer** (native SAM3, Depth Anything 3 and Canny nodes), with the
+- ComfyUI **0.42 or newer** (native SAM3, Depth Anything 3 and Canny nodes): a manual install with its own venv, the Windows portable build, or ComfyUI Desktop. Setup adds the
   [ComfyUI_IPAdapter_plus](https://github.com/cubiq/ComfyUI_IPAdapter_plus) custom node
 - Google Chrome or Microsoft Edge (used headless for PDF export)
 
 ## Run
 
 ```bash
-# 1. Start ComfyUI. No CORS flags needed.
-#    Without an NVIDIA GPU use plain --cpu (no dtype flags; see "Performance").
-cd D:\PROJECTS\ComfyUI
-.venv\Scripts\python.exe main.py --listen 127.0.0.1 --cpu
-
-# 2. Start Strata
 cd "D:\PROJECTS\Strata PWA"
 npm install
 npm run build
 npm start            # http://127.0.0.1:4787
 ```
 
-Use `npm run dev` while developing. The service worker (offline shell, installable PWA) only registers in production builds.
+Then open **Model manager → Set up everything**. Strata does the rest:
 
-Strata looks for ComfyUI at `http://127.0.0.1:8188` and auto-detects the ComfyUI folder (a sibling `../ComfyUI`, `COMFYUI_PATH`, or common locations). Change either in **Settings**.
+- **Finds ComfyUI**: the running server (on 8188, 8189, 8000, …, using ComfyUI's own folder list), ComfyUI Desktop's base path, or a `ComfyUI*` folder in your home, Documents, Desktop or the usual places on every drive (`X:\ComfyUI`, `X:\AI`, `X:\PROJECTS`, portable builds). It saves the folder and URL; if ComfyUI later answers on a different local port, Strata switches to it by itself.
+- **Reads the hardware**: CPU-only or CUDA/ROCm PyTorch build, NVIDIA VRAM and RAM pick the profile (Lite / Studio) and the launch flags.
+- **Installs missing node packs** (IPAdapter Plus) with Git, or as a zip through ComfyUI's own Python when Git is not installed.
+- **Starts ComfyUI** in the background with the right flags (`--cpu` without a GPU, local only, no browser pop-up), or **restarts** it when it runs with a flag that breaks Strata (`--fp16-unet`, `--fp8_e4m3fn-unet` on CPU). It never restarts while a job is queued, and never stops a process that is not ComfyUI. Its log is `.strata/comfyui.log`.
+- **Installs every model this machine needs**, fastest first: an identical copy already on the machine (Hugging Face cache, another ComfyUI, A1111/Forge/Fooocus/StabilityMatrix, Downloads) is hard-linked in seconds without using more disk space; only the rest is downloaded, two at a time, resuming dropped connections. Every file is checked against Hugging Face's SHA-256 before it is installed.
+- **Makes the low-memory copies** (fp8-ready UNet, text encoder, fp16 CLIP Vision) on CPU / small-RAM hosts as soon as their source is in place.
+
+**Start ComfyUI** buttons also appear in Settings and the Render tab whenever ComfyUI is offline, and **Auto-detect** in Settings fills in the folder and URL. Use `npm run dev` while developing; the service worker (offline shell, installable PWA) only registers in production builds.
+
+Downloads are limited by your internet line, not by Strata: on a 13 Mbps (1.6 MB/s) connection the full Lite set (8.6 GB) takes about 90 minutes, and splitting files over several connections measured no faster. Reusing local copies is what makes setup fast.
 
 ## First run
 
-1. Open **Model manager**. Strata recommends **Lite** (CPU / ≤8 GB VRAM) or **Studio** (SDXL, NVIDIA ≥12 GB) from your hardware. Download the required models; they stream straight into `ComfyUI/models/…`, resume after dropped connections, and ComfyUI picks them up without a restart.
+1. **Model manager → Set up everything** (above). Strata recommends **Lite** (CPU / ≤8 GB VRAM) or **Studio** (SDXL, NVIDIA ≥12 GB) from your hardware; the list below the setup panel lets you install single models by hand.
 2. Drop a base image on the canvas.
 3. **Auto-detect** (SAM3) masks floor, walls, ceiling, furniture and protected structure. Refine with Brush `B`, Eraser `E` or Magic wand `W`; `1`–`4` and `0` switch layers.
-4. Drop reference photos into a surface. Strata classifies the texture and picks a tropical-rated catalogue material (overridable).
+4. Pick a **Style** (Modern minimal, Warm tropical, Japandi, Industrial, Luxe stone) for coordinated finishes, and/or drop reference photos into a surface. Strata classifies the texture and picks a tropical-rated catalogue material (overridable). Unevenly lit reference photos are evened out first, so the shadow does not transfer with the material.
 5. **Generate** (`Ctrl+Enter`). A live preview streams while sampling; the result opens in a before/after slider.
-6. Fill in room dimensions in **Project**, then **Proposal → Export PDF**.
+6. Fill in room dimensions, budget and target handover in **Project**, check **Proposal → Before you send** (budget, deadline, unspecified surfaces, long-lead items), then **Export PDF**. The PDF includes an indicative installation programme.
 
 ## Keyboard
 
@@ -99,8 +102,10 @@ What you should do:
 ## Tests
 
 ```bash
-npm test          # graph builders vs. a captured ComfyUI 0.42 schema, BOQ, material rules, texture classifier, proposal HTML
-npm run test:e2e  # Playwright, installed Chrome: every page and button, Generate/4K/PDF with ComfyUI mocked (~1 min)
+npm test          # graph builders vs. a captured ComfyUI 0.42 schema, BOQ, programme and checks, styles, material rules,
+                  # texture classifier and equalizer, proposal HTML, setup detection, local-copy reuse and checksums
+npm run test:e2e  # Playwright, installed Chrome: every page and button, Generate/4K/PDF, one-click setup, start/restart,
+                  # auto-detect, styles and proposal checks, with ComfyUI mocked (~1 min)
 npm run typecheck
 
 # Per-node timing of the real generation graph against a running ComfyUI:

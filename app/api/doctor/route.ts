@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { getConfig } from "@/lib/server/config";
+import { getConfig, setConfig } from "@/lib/server/config";
+import { findRunning, isLocalUrl } from "@/lib/server/setup";
 import { USED_NODES } from "@/lib/workflow/profiles";
 import type { ObjectInfo } from "@/lib/workflow/graph";
 
@@ -18,11 +19,21 @@ const cache = globalThis as unknown as { __strataObjectInfo?: { at: number; url:
  * rarely change, so they are sent only when the caller's `have` key differs from `infoKey`.
  */
 export async function GET(req: Request) {
-  const { comfyUrl, comfyPath } = getConfig();
+  let { comfyUrl, comfyPath } = getConfig();
   const params = new URL(req.url).searchParams;
   const refresh = params.has("refresh");
   try {
-    const stats = (await (await fetch(`${comfyUrl}/system_stats`, { signal: AbortSignal.timeout(4000), cache: "no-store" })).json()) as SystemStats;
+    let stats: SystemStats;
+    try {
+      stats = (await (await fetch(`${comfyUrl}/system_stats`, { signal: AbortSignal.timeout(4000), cache: "no-store" })).json()) as SystemStats;
+    } catch (e) {
+      // Not at the saved local URL: if ComfyUI answers on another usual local port, switch to it.
+      // A remote URL (a GPU workstation) is never swapped for a local instance.
+      const found = isLocalUrl(comfyUrl) ? await findRunning(comfyUrl) : null;
+      if (!found || found.url === comfyUrl) throw e;
+      ({ comfyUrl, comfyPath } = setConfig({ comfyUrl: found.url }));
+      stats = (await (await fetch(`${comfyUrl}/system_stats`, { signal: AbortSignal.timeout(4000), cache: "no-store" })).json()) as SystemStats;
+    }
     let full = cache.__strataObjectInfo;
     if (refresh || !full || full.url !== comfyUrl || Date.now() - full.at > 30_000) {
       const data = (await (await fetch(`${comfyUrl}/object_info`, { signal: AbortSignal.timeout(20_000), cache: "no-store" })).json()) as ObjectInfo;

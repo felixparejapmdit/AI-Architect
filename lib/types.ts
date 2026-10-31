@@ -71,6 +71,10 @@ export interface ProjectMeta {
   openingsPct: number;
   furniturePieces: number;
   contingencyPct: number;
+  /** Client budget in PHP incl. VAT; 0 or absent = not set. */
+  budgetPhp?: number;
+  /** Target completion date (YYYY-MM-DD); empty or absent = not set. */
+  targetDate?: string;
 }
 
 export interface GenSettings {
@@ -99,6 +103,8 @@ export interface GenSettings {
   maskFeather: number;
   /** Diffuse only the edited region plus context instead of the whole frame (absent = on). */
   cropToMask?: boolean;
+  /** Remove shadows / vignetting from unevenly lit reference photos before encoding (absent = on). */
+  evenLighting?: boolean;
   extraPrompt: string;
   negativePrompt: string;
 }

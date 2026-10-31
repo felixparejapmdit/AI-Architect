@@ -39,13 +39,18 @@ export async function resizeBlob(src: CanvasImageSource, w: number, h: number, t
   return toBlob(c, type, quality);
 }
 
-/** Centre-crops to a square, which is what CLIP Vision sees anyway. */
-export async function squareCropBlob(src: ImageBitmap, size: number): Promise<Blob> {
+/** Centre-crops to a square, which is what CLIP Vision sees anyway, optionally editing the pixels. */
+export async function squareCropBlob(src: ImageBitmap, size: number, edit?: (img: ImageData) => void): Promise<Blob> {
   const s = Math.min(src.width, src.height);
   const c = canvas(size, size);
   const x = ctx2d(c);
   x.imageSmoothingQuality = "high";
   x.drawImage(src, (src.width - s) / 2, (src.height - s) / 2, s, s, 0, 0, size, size);
+  if (edit) {
+    const img = x.getImageData(0, 0, size, size);
+    edit(img);
+    x.putImageData(img, 0, 0);
+  }
   return toBlob(c, "image/png");
 }
 

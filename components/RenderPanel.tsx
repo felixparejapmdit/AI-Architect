@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Check, X, Dices, ChevronDown, Cpu, Zap } from "lucide-react";
+import { Check, X, Dices, ChevronDown, Cpu, Zap, Loader2, Play } from "lucide-react";
 import { patchProject, setProfile, useStore } from "@/lib/store";
+import { startComfyFromStrata } from "@/lib/setup-client";
 import { checkpointsForProfile, PROFILES, resolveModels } from "@/lib/workflow/profiles";
 import { comboOptions } from "@/lib/workflow/graph";
 import type { GenSettings, PipelineProfile } from "@/lib/types";
@@ -79,6 +80,12 @@ export function RenderPanel() {
       <Section title="Material">
         <Slider label="Material strength" value={s.denoise} min={0.4} max={1} step={0.01} onChange={(v) => set({ denoise: v })} format={(v) => `${Math.round(v * 100)}%`} />
         <p className="-mt-1 text-[11px] leading-snug text-faint">Lower keeps more of the original lighting and reflections on the surface; higher fully replaces the finish.</p>
+        <Toggle
+          label="Even out reference lighting"
+          hint="Phone photos with a shadow, vignette or light falloff are flattened before IP-Adapter reads them, so only the material transfers. Evenly lit photos are left as they are."
+          checked={s.evenLighting !== false}
+          onChange={(v) => set({ evenLighting: v })}
+        />
         <Field label="Extra prompt">
           <textarea
             value={s.extraPrompt}
@@ -132,7 +139,7 @@ export function RenderPanel() {
       >
         {advanced && (
           <>
-            <Toggle label="LCM LoRA (fast sampling)" checked={s.useLcm} onChange={(v) => set({ useLcm: v, ...(v ? { steps: 6, cfg: 1.5, sampler: "lcm", scheduler: "sgm_uniform" } : { steps: 25, cfg: 6, sampler: "dpmpp_2m", scheduler: "karras" }) })} />
+            <Toggle label="LCM LoRA (fast sampling)" checked={s.useLcm} onChange={(v) => set({ useLcm: v, ...(v ? { steps: 6, cfg: 1, sampler: "lcm", scheduler: "sgm_uniform" } : { steps: 25, cfg: 6, sampler: "dpmpp_2m", scheduler: "karras" }) })} />
             <div className="grid grid-cols-2 gap-2">
               <Field label="Steps">
                 <NumberInput value={s.steps} min={1} max={80} onChange={(v) => set({ steps: Math.round(v) })} />
@@ -164,12 +171,18 @@ export function RenderPanel() {
 }
 
 function ModelStatus({ models, useDepth, useLcm, online }: { models: ReturnType<typeof resolveModels>; useDepth: boolean; useLcm: boolean; online: boolean }) {
+  const serverBusy = useStore((s) => s.serverBusy);
   // Offline, every slot resolves to null; that says nothing about what is installed.
   if (!online) {
     return (
-      <button onClick={() => useStore.setState({ modal: "settings" })} className="w-full rounded-lg border border-line px-2.5 py-2 text-left text-xs text-mute hover:bg-paper">
-        <span className="font-medium text-danger">ComfyUI is offline.</span> Model status appears once it is running. <span className="text-accent">Settings</span>
-      </button>
+      <div className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-2 text-xs text-mute">
+        <span className="flex-1">
+          <span className="font-medium text-danger">ComfyUI is offline.</span> Model status appears once it is running.
+        </span>
+        <Button size="sm" disabled={serverBusy} onClick={() => void startComfyFromStrata()}>
+          {serverBusy ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />} {serverBusy ? "Starting…" : "Start"}
+        </Button>
+      </div>
     );
   }
   const rows: { label: string; ok: boolean; value: string | null; needed: boolean }[] = [

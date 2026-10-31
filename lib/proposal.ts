@@ -2,6 +2,7 @@ import type { Boq } from "./boq";
 import { php } from "./boq";
 import type { GuidelineGroup } from "./guidelines";
 import type { Material } from "./materials";
+import { spanLabel, WORK_DAYS_PER_WEEK, type Programme } from "./programme";
 import type { BucketId, ProjectMeta } from "./types";
 
 export interface ScheduleItem {
@@ -17,6 +18,8 @@ export interface ProposalPayload {
   images: { hero: string; before: string; after: string };
   schedule: ScheduleItem[];
   boq: Boq;
+  /** Absent in payloads from before programmes existed. */
+  programme?: Programme;
   guidelines: GuidelineGroup[];
   render: { seed: number; profile: string; width: number; height: number };
   paper: "A4" | "A3";
@@ -127,9 +130,31 @@ export function renderProposalHtml(p: ProposalPayload, fontCss = ""): string {
     </table>
   </section>`;
 
+  const prog = p.programme;
+  const programmePage =
+    prog && prog.tasks.length
+      ? `
+  <section class="page">
+    <header><span class="num">04</span><h2>Indicative programme</h2></header>
+    <p class="basis">About ${esc(spanLabel(prog.totalDays))} from order to handover: one crew working ${WORK_DAYS_PER_WEEK} days a week, finishing top-down so no trade works over a finished surface. Each trade starts once its material is on site.
+      Durations come from typical crew output and supplier lead times and must be confirmed with the contractor.</p>
+    <table class="boq prog">
+      <colgroup><col style="width:24mm"><col><col style="width:30mm"><col style="width:24mm"><col style="width:22mm"><col style="width:70mm"></colgroup>
+      <thead><tr><th>Trade</th><th>Material</th><th class="r">Quantity</th><th class="r">Lead time</th><th class="r">On site</th><th>Days from order</th></tr></thead>
+      <tbody>${prog.tasks
+        .map(
+          (t) => `<tr><td>${esc(t.label)}</td><td>${esc(t.material)}</td><td class="r">${qty(t.qty)} ${esc(t.unit)}</td><td class="r">${Number(t.leadDays)} d</td><td class="r">${Number(t.installDays)}${t.cureDays ? ` + ${Number(t.cureDays)}` : ""} d</td>
+        <td><div class="bar"><span style="left:${((t.startDay / prog.totalDays) * 100).toFixed(1)}%;width:${Math.max(1.5, ((t.endDay - t.startDay) / prog.totalDays) * 100).toFixed(1)}%"></span></div><span class="muted small">day ${Number(t.startDay)}–${Number(t.endDay)}</span></td></tr>`,
+        )
+        .join("")}</tbody>
+    </table>
+    <p class="note">On site = installation working days + curing / setting days before the next trade.</p>
+  </section>`
+      : "";
+
   const guide = `
   <section class="page flow">
-    <header><span class="num">04</span><h2>Tropical installation guidelines</h2></header>
+    <header><span class="num">${programmePage ? "05" : "04"}</span><h2>Tropical installation guidelines</h2></header>
     <div class="guides">
       ${p.guidelines.map((g) => `<div class="guide"><h4>${esc(g.title)}</h4><ul>${g.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div>`).join("")}
     </div>
@@ -195,6 +220,8 @@ export function renderProposalHtml(p: ProposalPayload, fontCss = ""): string {
   .guide h4 { margin: 0 0 4px; font-size: 10pt; font-weight: 600; }
   .guide ul { margin: 0; padding-left: 14px; font-size: 8.8pt; }
   .guide li { margin-bottom: 3px; }
+  .prog .bar { position: relative; height: 6px; background: #F0F0EE; border-radius: 3px; margin: 4px 0 2px; }
+  .prog .bar span { position: absolute; top: 0; bottom: 0; background: #3366FF; border-radius: 3px; }
 </style></head>
-<body>${cover}${beforeAfter}${schedule}${boqPage}${guide}</body></html>`;
+<body>${cover}${beforeAfter}${schedule}${boqPage}${programmePage}${guide}</body></html>`;
 }

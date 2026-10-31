@@ -4,6 +4,7 @@ import { create } from "zustand";
 import type { BucketId, BucketState, LayerId, PipelineProfile, Project, ProjectSummary, ReferenceImage, ZoneType } from "./types";
 import { BUCKETS, LAYERS } from "./buckets";
 import { MATERIALS, suggestMaterial, type Material } from "./materials";
+import { STYLE_PRESETS, styleMaterialFor } from "./styles";
 import * as db from "./db";
 import { liveCoverage, masks } from "./masks";
 import { analyzeTexture } from "./texture";
@@ -70,6 +71,8 @@ interface State {
   maskVersion: number;
   fitSignal: number;
   dragging: boolean;
+  /** Strata is starting or restarting ComfyUI (see lib/setup-client.ts). */
+  serverBusy: boolean;
 }
 
 export const EDIT_LONG_SIDE = 1536;
@@ -94,6 +97,7 @@ export const useStore = create<State>()(() => ({
   maskVersion: 0,
   fitSignal: 0,
   dragging: false,
+  serverBusy: false,
 }));
 
 const set = useStore.setState;
@@ -180,7 +184,7 @@ function blankProject(name: string, profile: PipelineProfile, checkpoint: string
     name,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    meta: { client: "", location: "Metro Manila", preparedBy: "", zone: "living", floorArea: 24, ceilingHeight: 2.7, perimeter: 0, openingsPct: 15, furniturePieces: 3, contingencyPct: 10 },
+    meta: { client: "", location: "Metro Manila", preparedBy: "", zone: "living", floorArea: 24, ceilingHeight: 2.7, perimeter: 0, openingsPct: 15, furniturePieces: 3, contingencyPct: 10, budgetPhp: 0, targetDate: "" },
     base: null,
     buckets: Object.fromEntries(BUCKETS.map((b) => [b, bucket(b)])) as Project["buckets"],
     masks: Object.fromEntries(LAYERS.map((l) => [l, { blobId: null, source: null, coverage: 0 }])) as Project["masks"],
@@ -313,6 +317,24 @@ export async function removeReference(bucket: BucketId, refId: string) {
     if (!b.materialPinned) b.materialId = b.refs[0] ? suggestMaterial(bucket, d.meta.zone, b.refs[0].analysis, get().library).materialId : null;
   });
   if (ref) await db.deleteBlobs([ref.blobId]);
+}
+
+/** Puts a design style's coordinated finishes on every enabled floor / walls / ceiling surface. */
+export function applyStyle(presetId: string) {
+  const preset = STYLE_PRESETS.find((x) => x.id === presetId);
+  const library = get().library;
+  if (!preset || !get().project) return;
+  const applied: string[] = [];
+  patchProject((d) => {
+    for (const b of ["floor", "walls", "ceiling"] as const) {
+      const id = d.buckets[b].enabled ? styleMaterialFor(preset, b, d.meta.zone, library) : null;
+      if (!id) continue;
+      d.buckets[b].materialId = id;
+      d.buckets[b].materialPinned = true;
+      applied.push(`${b}: ${library.find((m) => m.id === id)?.name ?? id}`);
+    }
+  });
+  toast(applied.length ? `${preset.name}: ${applied.join(" · ")}` : "Enable a surface first", applied.length ? "success" : "info");
 }
 
 export function setMaterial(bucket: BucketId, materialId: string | null) {

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { FileDown, Eye, Loader2, AlertTriangle } from "lucide-react";
+import { FileDown, Eye, Loader2, AlertTriangle, Check, Info } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { computeBoq, php } from "@/lib/boq";
 import { buildGuidelines } from "@/lib/guidelines";
+import { buildProgramme, proposalChecks, spanLabel } from "@/lib/programme";
 import { exportProposal, proposalSelections } from "@/lib/pipeline";
 import { BUCKETS, LAYER_INFO, zoneLabel } from "@/lib/buckets";
 import { BlobImg, Button, cx } from "./ui";
@@ -12,13 +13,15 @@ import { BlobImg, Button, cx } from "./ui";
 export function ProposalPeek() {
   const project = useStore((s) => s.project);
   const job = useStore((s) => s.job);
-  useStore((s) => s.library);
+  const library = useStore((s) => s.library);
   const [paper, setPaper] = useState<"A4" | "A3">("A4");
   if (!project) return null;
 
   const selections = proposalSelections();
   const boq = computeBoq(project.meta, selections);
   const guidelines = buildGuidelines(project.meta.zone, selections);
+  const programme = buildProgramme(boq);
+  const checks = proposalChecks(project, library, boq, programme);
   const render = project.renders.find((r) => r.id === project.activeRenderId) ?? project.renders[0];
   const exporting = job?.kind === "proposal";
 
@@ -77,6 +80,40 @@ export function ProposalPeek() {
         <div className="flex justify-between"><span className="text-mute">VAT 12%</span><span className="tabular-nums">{php(boq.vat)}</span></div>
         <div className="mt-1 flex justify-between border-t border-line pt-1 font-semibold"><span>Estimated total</span><span className="tabular-nums">{php(boq.total)}</span></div>
       </div>
+
+      {programme.tasks.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-mute">Indicative programme · {spanLabel(programme.totalDays)} from order</h3>
+          <ol className="space-y-1.5 text-xs" aria-label="Programme">
+            {programme.tasks.map((t) => (
+              <li key={t.bucket} className="flex items-center gap-2">
+                <span className="w-16 shrink-0 font-medium">{t.label}</span>
+                <span className="relative h-2 flex-1 rounded-full bg-paper">
+                  <span className="absolute inset-y-0 rounded-full bg-accent/70" style={{ left: `${(t.startDay / programme.totalDays) * 100}%`, width: `${Math.max(2, ((t.endDay - t.startDay) / programme.totalDays) * 100)}%` }} />
+                </span>
+                <span className="w-28 shrink-0 text-right tabular-nums text-mute">day {t.startDay}–{t.endDay}{t.assumed ? "*" : ""}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-1.5 text-[11px] leading-snug text-faint">
+            One crew, Monday to Saturday, top-down (ceiling, walls, floor, furniture); each trade starts once its material is on site. Indicative: confirm with your contractor.{programme.tasks.some((t) => t.assumed) ? " * library defaults (no crew data for that material)." : ""}
+          </p>
+        </div>
+      )}
+
+      {checks.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-mute">Before you send</h3>
+          <ul className="space-y-1.5" aria-label="Proposal checks">
+            {checks.map((c) => (
+              <li key={c.text} className={cx("flex gap-2 rounded-md px-2.5 py-1.5 text-xs leading-snug", c.level === "warn" ? "bg-amber-50 text-amber-900" : c.level === "ok" ? "bg-green-50 text-green-900" : "bg-paper text-mute")}>
+                {c.level === "warn" ? <AlertTriangle size={13} className="mt-px shrink-0" /> : c.level === "ok" ? <Check size={13} className="mt-px shrink-0" /> : <Info size={13} className="mt-px shrink-0" />}
+                {c.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <p className="text-xs text-mute">
         {guidelines.reduce((n, g) => n + g.items.length, 0)} tropical installation notes across {guidelines.length} groups will be included. Quantities come from the room dimensions in the Project tab.

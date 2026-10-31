@@ -33,6 +33,12 @@ export interface Material {
   /** Indicative installation labour in PHP per unit. */
   installPhp: number;
   wastagePct: number;
+  /** Units installed per crew-day (one skilled installer + helper). Indicative, like the rates. */
+  crewRate?: number;
+  /** Order-to-site lead time in calendar days (stock, import or fabrication). */
+  leadDays?: number;
+  /** Days before the next trade can work on or over it (adhesive set, screed or coating cure). */
+  cureDays?: number;
   /** Text fed to the diffusion prompt for this surface. */
   prompt: string;
   tropical: string[];
@@ -63,6 +69,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 9500,
     installPhp: 1400,
     wastagePct: 12,
+    crewRate: 6,
+    leadDays: 21,
+    cureDays: 1,
     prompt: "large format sintered stone slabs with subtle natural veining, minimal tight grout lines",
     tropical: [
       "Zero VOC; inert mineral surface",
@@ -93,6 +102,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 3600,
     installPhp: 900,
     wastagePct: 10,
+    crewRate: 8,
+    leadDays: 14,
+    cureDays: 1,
     prompt: "slim rectified porcelain tiles with crisp thin grout joints",
     tropical: [
       "Water absorption ≤0.5% (BIa porcelain)",
@@ -127,6 +139,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 1650,
     installPhp: 750,
     wastagePct: 10,
+    crewRate: 12,
+    leadDays: 7,
+    cureDays: 1,
     prompt: "large rectangular glazed porcelain floor tiles with thin grout lines",
     tropical: ["Low water absorption", "Termite proof", "Easy to clean in dusty, humid conditions"],
     accessories: [
@@ -149,6 +164,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 2100,
     installPhp: 700,
     wastagePct: 5,
+    crewRate: 25,
+    leadDays: 10,
+    cureDays: 2,
     prompt: "seamless matte grey polyurethane cement floor screed, industrial finish",
     tropical: [
       "Tolerates slab moisture far better than epoxy coatings",
@@ -177,6 +195,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 1450,
     installPhp: 350,
     wastagePct: 8,
+    crewRate: 30,
+    leadDays: 5,
+    cureDays: 0,
     prompt: "natural oak wood plank flooring with realistic grain",
     tropical: ["100% waterproof core", "Termite immune, unlike solid or engineered timber", "Dimensionally stable in humidity"],
     accessories: [
@@ -201,6 +222,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 180,
     installPhp: 160,
     wastagePct: 10,
+    crewRate: 25,
+    leadDays: 2,
+    cureDays: 1,
     prompt: "smooth matte painted wall surface",
     tropical: ["Fungicidal film resists black mould", "Low VOC", "Breathable over cement render"],
     accessories: [
@@ -225,6 +249,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 1850,
     installPhp: 450,
     wastagePct: 8,
+    crewRate: 12,
+    leadDays: 7,
+    cureDays: 0,
     prompt: "vertical fluted wood slat wall paneling, warm timber tone",
     tropical: ["Termite proof", "Does not swell or rot in humidity", "No varnish maintenance"],
     accessories: [
@@ -246,6 +273,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 650,
     installPhp: 550,
     wastagePct: 8,
+    crewRate: 10,
+    leadDays: 5,
+    cureDays: 2,
     prompt: "smooth flat white plaster ceiling",
     tropical: ["Water-repellent core and facers", "Metal framing is termite proof"],
     accessories: [
@@ -267,6 +297,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 520,
     installPhp: 480,
     wastagePct: 8,
+    crewRate: 12,
+    leadDays: 5,
+    cureDays: 1,
     prompt: "smooth painted ceiling",
     tropical: ["Unaffected by water and steam", "Termite and rot proof"],
     accessories: [
@@ -288,6 +321,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 2200,
     installPhp: 500,
     wastagePct: 5,
+    crewRate: 12,
+    leadDays: 14,
+    cureDays: 0,
     prompt: "linear wood slat ceiling with warm timber grain",
     tropical: ["Wood look without termite or rot risk", "Suitable for semi-outdoor lanai and humid areas"],
     accessories: [],
@@ -307,6 +343,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 2600,
     installPhp: 900,
     wastagePct: 5,
+    crewRate: 10,
+    leadDays: 10,
+    cureDays: 3,
     prompt: "seamless trowelled microcement surface, soft mottled concrete texture",
     tropical: ["Seamless, no grout lines for mould", "Sealed surface resists humidity"],
     accessories: [{ name: "Fibreglass reinforcement mesh", unit: "m²", qtyPerUnit: 1.05, unitCostPhp: 85, reason: "Controls hairline cracking" }],
@@ -326,6 +365,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 18000,
     installPhp: 6000,
     wastagePct: 0,
+    crewRate: 2,
+    leadDays: 28,
+    cureDays: 0,
     prompt: "upholstered furniture in textured woven fabric",
     tropical: ["Mould and mildew resistant", "Colourfast in strong sun", "Wipe-clean"],
     accessories: [],
@@ -345,6 +387,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 22000,
     installPhp: 5000,
     wastagePct: 0,
+    crewRate: 1,
+    leadDays: 21,
+    cureDays: 0,
     prompt: "wood veneer cabinetry and furniture with realistic grain",
     tropical: ["Balanced HPL on both faces prevents warping", "Treated core resists termites"],
     accessories: [],
@@ -364,6 +409,9 @@ export const MATERIALS: Material[] = [
     supplyPhp: 28000,
     installPhp: 4000,
     wastagePct: 0,
+    crewRate: 2,
+    leadDays: 14,
+    cureDays: 1,
     prompt: "polished stone countertops and table tops",
     tropical: ["Non-porous: no sealing, no mould", "Termite immune"],
     accessories: [],

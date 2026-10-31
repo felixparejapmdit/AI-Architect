@@ -1,16 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, Play, RefreshCw, ScanSearch } from "lucide-react";
 import { refreshDoctor, toast, useStore } from "@/lib/store";
 import { formatBytes } from "@/lib/models-catalog";
+import { postSetup, startComfyFromStrata } from "@/lib/setup-client";
 import { Button, cx, Field, TextInput } from "./ui";
 
 export function SettingsDialog() {
   const doctor = useStore((s) => s.doctor);
+  const serverBusy = useStore((s) => s.serverBusy);
   const [url, setUrl] = useState("");
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+
+  const detect = async () => {
+    setDetecting(true);
+    try {
+      const { report, error } = await postSetup("detect");
+      if (error || !report) throw new Error(error ?? "Detection failed");
+      setUrl(report.config.comfyUrl);
+      setPath(report.config.comfyPath);
+      await refreshDoctor(true);
+      toast(
+        report.install
+          ? `Found ComfyUI at ${report.install.path}${report.running ? `, running at ${report.running.url}` : " (not running)"}`
+          : "No ComfyUI folder found on this machine",
+        report.install ? "success" : "error",
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setDetecting(false);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/config").then(async (r) => {
@@ -48,9 +72,14 @@ export function SettingsDialog() {
           </>
         ) : (
           <>
-            <div className="font-medium">ComfyUI is not reachable</div>
+            <div className="flex items-center gap-2">
+              <span className="flex-1 font-medium">ComfyUI is not reachable</span>
+              <Button size="sm" disabled={serverBusy} onClick={() => void startComfyFromStrata()}>
+                {serverBusy ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />} {serverBusy ? "Starting…" : "Start ComfyUI"}
+              </Button>
+            </div>
             <div className="mt-1 text-xs opacity-80">
-              Start it from its folder, e.g. <code className="rounded bg-white/70 px-1">python main.py --listen 127.0.0.1</code> (add <code className="rounded bg-white/70 px-1">--cpu</code> without an NVIDIA GPU). No CORS flags are needed: Strata proxies all requests.
+              Strata starts it with the right flags for this machine (<code className="rounded bg-white/70 px-1">--cpu</code> without a GPU) and keeps it running in the background. No CORS flags are needed: Strata proxies all requests.
             </div>
           </>
         )}
@@ -64,6 +93,9 @@ export function SettingsDialog() {
       <div className="flex gap-2">
         <Button variant="primary" disabled={busy} onClick={() => void save()}>
           {busy && <Loader2 size={13} className="animate-spin" />} Save &amp; connect
+        </Button>
+        <Button disabled={detecting} onClick={() => void detect()} title="Find ComfyUI on this machine (any drive, portable, Desktop) and the port it runs on">
+          {detecting ? <Loader2 size={13} className="animate-spin" /> : <ScanSearch size={13} />} Auto-detect
         </Button>
         <Button variant="ghost" onClick={() => void refreshDoctor(true)}>
           <RefreshCw size={13} /> Re-check

@@ -1,7 +1,9 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Loader2, RotateCw } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { startComfyFromStrata } from "@/lib/setup-client";
+import { Button } from "./ui";
 import { formatBytes } from "@/lib/models-catalog";
 import { globalFp8Flag, ipAdapterDtypeConflict } from "@/lib/pipeline";
 import { PROFILES, resolveModels } from "@/lib/workflow/profiles";
@@ -17,6 +19,7 @@ const RECOMMENDED = "python main.py --listen 127.0.0.1 --cpu";
 export function PerfHints() {
   const d = useStore((s) => s.doctor);
   const settings = useStore((s) => s.project?.settings);
+  const serverBusy = useStore((s) => s.serverBusy);
   if (!d?.online || d.device?.type !== "cpu") return null;
   const fp16Conflict = ipAdapterDtypeConflict();
   const fp8Global = globalFp8Flag();
@@ -35,11 +38,16 @@ export function PerfHints() {
         <AlertTriangle size={13} /> {fp16Conflict ? "Reference images will fail with this ComfyUI" : fp8Global ? "Auto-detect will fail with this ComfyUI" : "Renders will be slow on this setup"}
       </div>
       {(fp16Conflict || fp8Global) && (
-        <p>
-          ComfyUI was started with <code className="rounded bg-white/70 px-1">{fp16Conflict ? "--fp16-unet" : "--fp8_e4m3fn-unet"}</code>, which on CPU breaks{" "}
-          {fp16Conflict ? "IP-Adapter (fp16/fp32 mismatch)" : "SAM3 Auto-detect (no fp8 convolutions on CPU)"}. Restart it with plain <code className="rounded bg-white/70 px-1">--cpu</code>; Strata stores the render model in fp8 by itself:
-          <code className="mt-1 block rounded bg-white/70 px-1.5 py-1">{RECOMMENDED}</code>
-        </p>
+        <div className="space-y-1.5">
+          <p>
+            ComfyUI was started with <code className="rounded bg-white/70 px-1">{fp16Conflict ? "--fp16-unet" : "--fp8_e4m3fn-unet"}</code>, which on CPU breaks{" "}
+            {fp16Conflict ? "IP-Adapter (fp16/fp32 mismatch)" : "SAM3 Auto-detect (no fp8 convolutions on CPU)"}. Restart it with plain <code className="rounded bg-white/70 px-1">--cpu</code>; Strata stores the render model in fp8 by itself:
+            <code className="mt-1 block rounded bg-white/70 px-1.5 py-1">{RECOMMENDED}</code>
+          </p>
+          <Button size="sm" disabled={serverBusy} onClick={() => void startComfyFromStrata(true)}>
+            {serverBusy ? <Loader2 size={12} className="animate-spin" /> : <RotateCw size={12} />} Restart with plain --cpu
+          </Button>
+        </div>
       )}
       {needsSplit && (
         <p>

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Eye, EyeOff, Plus, X, Sparkles, Pin, Paintbrush, ShieldCheck, Square, FileText } from "lucide-react";
-import { addReferences, patchProject, removeReference, setMaterial, useStore } from "@/lib/store";
+import { Eye, EyeOff, Plus, X, Sparkles, Pin, Paintbrush, ShieldCheck, Square, FileText, Palette } from "lucide-react";
+import { addReferences, applyStyle, patchProject, removeReference, setMaterial, useStore } from "@/lib/store";
 import { BUCKETS, LAYER_INFO } from "@/lib/buckets";
 import { suggestMaterial } from "@/lib/materials";
+import { STYLE_PRESETS, styleMaterialFor } from "@/lib/styles";
 import { activeSurfaces, cancelJob, formatDuration, generate } from "@/lib/pipeline";
 import type { BucketId } from "@/lib/types";
 import { RenderPanel } from "./RenderPanel";
@@ -64,10 +65,40 @@ function MaterialsPanel() {
       <p className="px-1 text-xs leading-relaxed text-mute">
         Drop reference photos into a surface. Strata reads the texture, picks a tropical-rated Philippine material, and applies it only inside that surface&apos;s mask.
       </p>
+      <StyleRow />
       {BUCKETS.map((b) => (
         <BucketCard key={b} bucket={b} />
       ))}
       <ProtectedCard />
+    </div>
+  );
+}
+
+/** One-click design styles: coordinated catalogue finishes for floor, walls and ceiling. */
+function StyleRow() {
+  const buckets = useStore((s) => s.project!.buckets);
+  const zone = useStore((s) => s.project!.meta.zone);
+  const library = useStore((s) => s.library);
+  const surfaces = (["floor", "walls", "ceiling"] as const).filter((b) => buckets[b].enabled);
+  const active = surfaces.length ? STYLE_PRESETS.find((sp) => surfaces.every((b) => buckets[b].materialId === styleMaterialFor(sp, b, zone, library))) : undefined;
+  return (
+    <div className="px-1">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-mute">
+        <Palette size={12} /> Style
+      </div>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Design style">
+        {STYLE_PRESETS.map((sp) => (
+          <button
+            key={sp.id}
+            title={`${sp.blurb}. Sets each enabled surface's material; reference photos still lead where you added them.`}
+            aria-pressed={active?.id === sp.id}
+            onClick={() => applyStyle(sp.id)}
+            className={cx("h-7 rounded-md border px-2.5 text-xs transition", active?.id === sp.id ? "border-accent bg-accent-soft text-accent" : "border-line text-mute hover:bg-paper hover:text-ink")}
+          >
+            {sp.name}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

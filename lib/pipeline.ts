@@ -4,6 +4,7 @@ import type { BucketId, LayerId, Project, RenderRecord } from "./types";
 import { BUCKETS, LAYERS, LAYER_INFO, zoneLabel } from "./buckets";
 import { findMaterial, type Material } from "./materials";
 import { computeBoq } from "./boq";
+import { buildProgramme } from "./programme";
 import { buildGuidelines } from "./guidelines";
 import type { ProposalPayload, ScheduleItem } from "./proposal";
 import { globalPrompt, surfacePrompt } from "./prompting";
@@ -11,6 +12,7 @@ import { getBlob, putBlob, uid } from "./db";
 import { masks } from "./masks";
 import { comfy, CancelledError } from "./comfy-client";
 import { bitmapFromBlob, canvas, ctx2d, fitWithin, maskBBox, maskFromBwBlob, maskToBwBlob, newMask, resizeBlob, squareCropBlob, toBlob, unionInto } from "./image";
+import { equalizeLighting } from "./texture";
 import { planCrop } from "./workflow/crop";
 import { applyDefaults, validatePrompt } from "./workflow/graph";
 import { buildSegmentationGraph } from "./workflow/segment";
@@ -249,10 +251,12 @@ export async function generate() {
     const descriptions: string[] = [];
     const refSize = s.profile === "studio" ? 768 : 512;
     const refHashes: Partial<Record<BucketId, string[]>> = {};
+    // Shadows and light falloff in a reference photo would otherwise transfer as part of the finish.
+    const evenLight = s.evenLighting !== false ? (img: ImageData) => void equalizeLighting(img) : undefined;
     const uploadRef = async (b: BucketId, r: { id: string; blobId: string }) => {
       const bmp = await bitmapFromBlob((await getBlob(r.blobId))!);
       try {
-        const png = await squareCropBlob(bmp, refSize);
+        const png = await squareCropBlob(bmp, refSize, evenLight);
         (refHashes[b] ??= []).push(await sha1Hex(await png.arrayBuffer()));
         return await comfy().upload(png, `${p.id}_ref_${r.id}.png`);
       } finally {
@@ -461,11 +465,13 @@ export async function exportProposal(paper: "A4" | "A3", format: "pdf" | "html")
       for (const r of bucket.refs.slice(0, 3)) swatches.push(await jpegDataUrl((await getBlob(r.blobId))!, 480, 0.85));
       schedule.push({ bucket: b, label: LAYER_INFO[b].label, material, swatches, colour: bucket.refs[0]?.analysis?.swatch ?? null });
     }
+    const boq = computeBoq(p.meta, selections);
     const payload: ProposalPayload = {
       project: { name: p.name, meta: p.meta, zoneLabel: zoneLabel(p.meta.zone), date: new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }) },
       images: { hero, before, after },
       schedule,
-      boq: computeBoq(p.meta, selections),
+      boq,
+      programme: buildProgramme(boq),
       guidelines: buildGuidelines(p.meta.zone, selections),
       render: { seed: render.seed, profile: render.profile, width: render.finalWidth ?? render.width, height: render.finalHeight ?? render.height },
       paper,
