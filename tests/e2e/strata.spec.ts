@@ -286,6 +286,30 @@ test.describe("Strata", () => {
     expect(comfy.setupActions).toEqual(["start"]);
   });
 
+  test("Start works while a full setup is still downloading models, and does not wait for it", async ({ page }) => {
+    const comfy = await mockComfy(page, { online: false });
+    const step = (id: string, status: string, detail?: string) => ({ id, label: id, status, detail });
+    const job = {
+      scope: "full",
+      status: "running",
+      startedAt: 0,
+      steps: [step("server", "done", "Started at http://127.0.0.1:8188 with --port 8188"), step("models", "running", "3 of 10 installed")],
+    };
+    // Registered after mockComfy, so it wins: the models step never finishes during this test.
+    await page.route("**/api/setup**", (route) => {
+      if (route.request().method() === "POST") comfy.setupActions.push("start");
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ job }) });
+    });
+    await page.goto("/");
+    await uploadBase(page);
+    await page.getByRole("button", { name: "Render", exact: true }).click();
+    const start = inspector(page).getByRole("button", { name: "Start", exact: true });
+    await start.click();
+    await expect(page.getByText(/Started at http:\/\/127\.0\.0\.1:8188/)).toBeVisible({ timeout: 10_000 });
+    await expect(start).toBeEnabled();
+    expect(comfy.setupActions).toEqual(["start"]);
+  });
+
   test("Settings auto-detect fills in the ComfyUI folder and URL", async ({ page }) => {
     const comfy = await mockComfy(page, { setupReport: { config: { comfyUrl: "http://127.0.0.1:8189", comfyPath: "E:\\AI\\ComfyUI_windows_portable\\ComfyUI" } } });
     await page.goto("/");

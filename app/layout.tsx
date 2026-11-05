@@ -1,9 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+// Self-hosted: Strata is local-first, and next/font/google needs the internet at build time.
+import "@fontsource-variable/inter/wght.css";
 import "./globals.css";
 import { SwRegister } from "@/components/SwRegister";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Strata: structure-locked material rendering",
@@ -21,7 +20,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en">
       <body>
         {children}
         <SwRegister />

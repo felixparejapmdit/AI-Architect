@@ -233,7 +233,7 @@ function logTail(file: string, lines = 6): string {
  */
 export async function startComfy(install: InstallInfo, port: number, gpu: boolean, isCancelled = () => false): Promise<RunningInfo> {
   if (!install.canStart || !install.python) {
-    throw new Error(install.kind === "desktop" ? "This is a ComfyUI Desktop install: open the ComfyUI Desktop app and Strata connects to it." : "ComfyUI's Python environment (.venv, venv or python_embeded) was not found; start ComfyUI yourself.");
+    throw new Error(install.kind === "desktop" ? "This is a ComfyUI Desktop install: open the ComfyUI Desktop app and Strata connects to it." : "ComfyUI's Python environment (.venv, venv or python_embeded) was not found, or was copied from another machine and points at a Python that is not here. Recreate it, or start ComfyUI yourself.");
   }
   const portable = install.kind === "portable";
   const args = [...(portable ? ["-s", path.join("ComfyUI", "main.py")] : ["main.py"]), ...launchArgs({ gpu, port })];
@@ -298,7 +298,7 @@ export async function stopComfy(url: string): Promise<void> {
 
 class StepError extends Error {}
 
-const state = globalThis as unknown as { __strataSetup?: { view: SetupJobView; cancel: () => void } };
+const state = globalThis as unknown as { __strataSetup?: { view: SetupJobView; cancel: () => void; retryServer?: (restart: boolean) => void } };
 
 export function getSetupJob(): SetupJobView | null {
   return state.__strataSetup?.view ?? null;
@@ -312,11 +312,16 @@ export function cancelSetup() {
  * One-click setup. `full`: find ComfyUI and save it, install missing node packs, start or
  * restart ComfyUI with the right flags, then install every missing model (identical local copies
  * first, then downloads, two at a time, checksum-verified) and run the low-memory conversions as
- * soon as their source is in place. `server`: only the start / restart.
+ * soon as their source is in place. `server`: only the start / restart. Model downloads can take
+ * hours, so a `server` request during a full setup re-runs that setup's server step in place.
  */
 export function startSetup(scope: "full" | "server" = "full", opts: { restart?: boolean } = {}): SetupJobView {
   const current = state.__strataSetup?.view;
-  if (current?.status === "running") return current;
+  if (current?.status === "running") {
+    const step = current.steps.find((s) => s.id === "server");
+    if (scope === "server" && current.scope === "full" && step && step.status !== "pending" && step.status !== "running") state.__strataSetup?.retryServer?.(!!opts.restart);
+    return current;
+  }
   const all: SetupStep[] = [
     { id: "detect", label: "Find ComfyUI and this machine's hardware", status: "pending" },
     { id: "nodes", label: "Custom nodes", status: "pending" },
@@ -340,13 +345,55 @@ export function startSetup(scope: "full" | "server" = "full", opts: { restart?: 
     if (cancelled) throw new Error("Cancelled");
   };
 
+  const shown = (args: string[]) => args.filter((a) => a !== "--listen" && a !== "127.0.0.1").join(" ");
+  /** Starts ComfyUI, or restarts it when its flags, new node packs or the caller ask for that. */
+  const bringUpServer = async (report: Awaited<ReturnType<typeof buildReport>>, install: InstallInfo, comfyUrl: string, restart: boolean, nodesChanged: boolean) => {
+    const running = await inspect(comfyUrl);
+    if (!running && !install.canStart) {
+      set("server", "skipped", install.kind === "desktop" ? "Open the ComfyUI Desktop app; Strata connects to it by itself." : "ComfyUI's Python environment was not found or is broken (copied from another machine?). Recreate it, or start ComfyUI yourself.");
+    } else if (!running) {
+      set("server", "running", `Starting ComfyUI on port ${report.port} (${shown(report.launchArgs)}); this takes a minute or two`);
+      const up = await startComfy(install, report.port, report.gpu, () => cancelled);
+      setConfig({ comfyUrl: up.url });
+      set("server", "done", `Started at ${up.url} with ${shown(report.launchArgs)}`);
+    } else if (running.local && (running.issues.length || nodesChanged || restart)) {
+      const why = running.issues.length ? `${running.issues.map((i) => i.flag).join(", ")} ${running.issues[0].problem}` : nodesChanged ? "load the new node packs" : "apply the recommended flags";
+      if (!install.canStart) set("server", "skipped", `Restart ComfyUI yourself to ${why}.`);
+      else if (running.queue > 0) set("server", "skipped", `ComfyUI is busy; restart it after the current job to ${why}.`);
+      else {
+        set("server", "running", `Restarting ComfyUI to ${why}`);
+        await stopComfy(running.url);
+        const port = Number(new URL(running.url).port || report.port);
+        const up = await startComfy(install, port, report.gpu, () => cancelled);
+        set("server", "done", `Restarted at ${up.url} with ${shown(launchArgs({ gpu: report.gpu, port }))}`);
+      }
+    } else {
+      set("server", "done", `Running at ${running.url}${running.local ? "" : " (another machine)"}`);
+    }
+  };
+
+  // A start / restart asked for while models download; the job waits for it before it ends.
+  let serverRetry: Promise<void> | null = null;
+  state.__strataSetup.retryServer = (restart) => {
+    set("server", "running", "Checking ComfyUI");
+    serverRetry = (async () => {
+      const report = await buildReport();
+      if (!report.install) throw new StepError("ComfyUI was not found on this machine.");
+      const url = report.running?.url ?? `http://127.0.0.1:${report.port}`;
+      setConfig({ comfyPath: report.install.path, comfyUrl: url });
+      await bringUpServer(report, report.install, url, restart, false);
+    })().catch((e: unknown) => {
+      set("server", "error", e instanceof Error ? e.message : String(e));
+    });
+  };
+
   (async () => {
     set("detect", "running");
     const report = await buildReport();
     const install = report.install;
     if (!install) throw new StepError("ComfyUI was not found on this machine. Install ComfyUI (manual, portable or Desktop), or set its folder in Settings.");
     const comfyPath = install.path;
-    let comfyUrl = report.running?.url ?? `http://127.0.0.1:${report.port}`;
+    const comfyUrl = report.running?.url ?? `http://127.0.0.1:${report.port}`;
     setConfig({ comfyPath, comfyUrl });
     set("detect", "done", `${comfyPath} · ${KIND_LABEL[install.kind]} · ${report.gpu ? "GPU" : "CPU"} · ${report.profile === "studio" ? "Studio" : "Lite"} profile`);
     checkCancel();
@@ -371,31 +418,8 @@ export function startSetup(scope: "full" | "server" = "full", opts: { restart?: 
     // Start (or restart) early, so masks can be painted while models download; new model files
     // show up in ComfyUI without a restart, new node packs do not.
     set("server", "running");
-    const shown = (args: string[]) => args.filter((a) => a !== "--listen" && a !== "127.0.0.1").join(" ");
     try {
-      const running = await inspect(comfyUrl);
-      if (!running && !install.canStart) {
-        set("server", "skipped", install.kind === "desktop" ? "Open the ComfyUI Desktop app; Strata connects to it by itself." : "ComfyUI's Python environment was not found; start ComfyUI yourself.");
-      } else if (!running) {
-        set("server", "running", `Starting ComfyUI on port ${report.port} (${shown(report.launchArgs)}); this takes a minute or two`);
-        const up = await startComfy(install, report.port, report.gpu, () => cancelled);
-        comfyUrl = up.url;
-        setConfig({ comfyUrl });
-        set("server", "done", `Started at ${up.url} with ${shown(report.launchArgs)}`);
-      } else if (running.local && (running.issues.length || nodesChanged || opts.restart)) {
-        const why = running.issues.length ? `${running.issues.map((i) => i.flag).join(", ")} ${running.issues[0].problem}` : nodesChanged ? "load the new node packs" : "apply the recommended flags";
-        if (!install.canStart) set("server", "skipped", `Restart ComfyUI yourself to ${why}.`);
-        else if (running.queue > 0) set("server", "skipped", `ComfyUI is busy; restart it after the current job to ${why}.`);
-        else {
-          set("server", "running", `Restarting ComfyUI to ${why}`);
-          await stopComfy(running.url);
-          const port = Number(new URL(running.url).port || report.port);
-          const up = await startComfy(install, port, report.gpu, () => cancelled);
-          set("server", "done", `Restarted at ${up.url} with ${shown(launchArgs({ gpu: report.gpu, port }))}`);
-        }
-      } else {
-        set("server", "done", `Running at ${running.url}${running.local ? "" : " (another machine)"}`);
-      }
+      await bringUpServer(report, install, comfyUrl, !!opts.restart, nodesChanged);
     } catch (e) {
       // Models can still be installed without a running ComfyUI; report and carry on.
       if (cancelled || scope === "server") throw e;
@@ -474,7 +498,8 @@ export function startSetup(scope: "full" | "server" = "full", opts: { restart?: 
       if (runningStep) Object.assign(runningStep, { status: "error", detail: msg });
       view.error = msg;
     })
-    .finally(() => {
+    .finally(async () => {
+      await serverRetry;
       for (const s of steps) if (s.status === "pending") s.status = "skipped";
       if (view.status === "running") {
         const failed = steps.filter((s) => s.status === "error");

@@ -322,12 +322,26 @@ export function cancelJob(id: string) {
 }
 
 /** Python that runs this ComfyUI: portable, venv, or .venv. */
+/**
+ * A venv's python.exe is only a launcher for the interpreter named by `home` in pyvenv.cfg. A venv
+ * copied from another machine or user keeps the launcher but points at a folder that is not here.
+ */
+function venvHomeExists(python: string): boolean {
+  try {
+    const cfg = fs.readFileSync(path.join(path.dirname(path.dirname(python)), "pyvenv.cfg"), "utf8");
+    const home = /^home\s*=\s*(.+?)\s*$/m.exec(cfg)?.[1];
+    return !home || fs.existsSync(home);
+  } catch {
+    return true; // no pyvenv.cfg: not a venv (python_embeded)
+  }
+}
+
 export function findComfyPython(comfyPath: string): string | null {
   const win = process.platform === "win32";
   const candidates = win
     ? [path.join(comfyPath, ".venv", "Scripts", "python.exe"), path.join(comfyPath, "venv", "Scripts", "python.exe"), path.join(comfyPath, "..", "python_embeded", "python.exe")]
     : [path.join(comfyPath, ".venv", "bin", "python"), path.join(comfyPath, "venv", "bin", "python")];
-  return candidates.find((p) => fs.existsSync(p)) ?? null;
+  return candidates.find((p) => fs.existsSync(p) && venvHomeExists(p)) ?? null;
 }
 
 function run(job: Job, cmd: string, args: string[], cwd: string): Promise<void> {

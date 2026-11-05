@@ -77,7 +77,7 @@ export function ModelManager() {
         <div className="flex rounded-lg bg-paper p-0.5">
           {(["lite", "studio"] as const).map((p) => (
             <button key={p} onClick={() => setProfile(p)} className={cx("h-7 rounded-md px-3 text-xs font-medium", profile === p ? "bg-white shadow-sm" : "text-mute hover:text-ink")}>
-              {p === "lite" ? "Lite (CPU)" : "Studio (GPU)"}
+              {p === "lite" ? "Lite (SD1.5)" : "Studio (SDXL)"}
               {doctor?.recommendedProfile === p && <span className="ml-1.5 text-ok">●</span>}
             </button>
           ))}

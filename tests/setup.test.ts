@@ -10,6 +10,24 @@ import { findLocalCopy, sha256File } from "../lib/server/downloads";
 import { describeInstall } from "../lib/server/setup";
 import { isComfyDir } from "../lib/server/config";
 
+test("a venv copied from another machine cannot start ComfyUI", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "strata-venv-"));
+  try {
+    fs.mkdirSync(path.join(dir, "models"));
+    fs.writeFileSync(path.join(dir, "main.py"), "");
+    const bin = path.join(dir, ".venv", process.platform === "win32" ? "Scripts" : "bin");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, process.platform === "win32" ? "python.exe" : "python"), "");
+    const cfg = path.join(dir, ".venv", "pyvenv.cfg");
+    fs.writeFileSync(cfg, `home = ${path.join(dir, "gone")}\nversion_info = 3.12\n`);
+    assert.equal(describeInstall(dir).canStart, false);
+    fs.writeFileSync(cfg, `home = ${dir}\n`);
+    assert.equal(describeInstall(dir).canStart, true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("launch flags: global dtype flags are problems on CPU only", () => {
   const issues = argvIssues(["main.py", "--cpu", "--fp16-unet"], "cpu");
   assert.equal(issues.length, 1);

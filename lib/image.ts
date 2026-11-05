@@ -158,7 +158,7 @@ function grow(m: MaskCanvas, px: number): MaskCanvas {
  * Renders an alpha mask as the opaque black/white PNG ComfyUI's LoadImageMask expects,
  * at the diffusion resolution, optionally grown and feathered.
  */
-export async function maskToBwBlob(m: MaskCanvas, w: number, h: number, opts: { grow?: number; feather?: number } = {}): Promise<Blob> {
+export async function maskToBwBlob(m: MaskCanvas, w: number, h: number, opts: { grow?: number; feather?: number; keepOut?: MaskCanvas } = {}): Promise<Blob> {
   const scaled = canvas(w, h);
   ctx2d(scaled).drawImage(m, 0, 0, w, h);
   const grown = opts.grow ? grow(scaled, opts.grow) : scaled;
@@ -169,6 +169,16 @@ export async function maskToBwBlob(m: MaskCanvas, w: number, h: number, opts: { 
   if (opts.feather) x.filter = `blur(${opts.feather}px)`;
   x.drawImage(grown, 0, 0);
   x.filter = "none";
+  // Applied last: growing and feathering must not spread the mask back over these pixels.
+  if (opts.keepOut) {
+    const black = canvas(w, h);
+    const k = ctx2d(black);
+    k.drawImage(opts.keepOut, 0, 0, w, h);
+    k.globalCompositeOperation = "source-in";
+    k.fillStyle = "#000";
+    k.fillRect(0, 0, w, h);
+    x.drawImage(black, 0, 0);
+  }
   return toBlob(out, "image/png");
 }
 

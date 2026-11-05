@@ -321,7 +321,7 @@ function GenerateFooter() {
                 ? "ComfyUI is offline"
                 : !surfaces.length
                   ? "Mask a surface and give it a reference or material"
-                  : `${profile === "studio" ? "Studio (SDXL)" : "Lite (CPU)"} · Ctrl+Enter`}
+                  : `${profile === "studio" ? "Studio (SDXL)" : "Lite (SD1.5)"} · Ctrl+Enter`}
           </p>
         </>
       )}

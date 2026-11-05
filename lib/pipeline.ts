@@ -11,7 +11,7 @@ import { globalPrompt, surfacePrompt } from "./prompting";
 import { getBlob, putBlob, uid } from "./db";
 import { masks } from "./masks";
 import { comfy, CancelledError } from "./comfy-client";
-import { bitmapFromBlob, canvas, ctx2d, fitWithin, maskBBox, maskFromBwBlob, maskToBwBlob, newMask, resizeBlob, squareCropBlob, toBlob, unionInto } from "./image";
+import { bitmapFromBlob, canvas, cloneMask, ctx2d, fitWithin, maskBBox, maskFromBwBlob, maskToBwBlob, newMask, resizeBlob, squareCropBlob, toBlob, unionInto } from "./image";
 import { equalizeLighting } from "./texture";
 import { planCrop } from "./workflow/crop";
 import { applyDefaults, validatePrompt } from "./workflow/graph";
@@ -278,9 +278,13 @@ export async function generate() {
         return { bucket: b, mask, refs, weight: bucket.weight, prompt: surfacePrompt(b, material, bucket.refs[0]?.analysis, bucket.note) };
       }),
     );
+    // Protected structure, and furniture that gets no finish in this render, must stay original even
+    // where the grown and feathered surface masks reach them (a radiator or sofa legs between surfaces).
+    const keepOut = cloneMask(masks.get("protected"));
+    if (!surfacesToRender.includes("furniture")) unionInto(keepOut, masks.get("furniture"));
     const [unionHard, unionSoft] = await Promise.all([
-      maskToBwBlob(union, work.width, work.height, { grow: s.maskGrow + s.maskFeather }).then((blob) => comfy().upload(blob, `${p.id}_union_hard.png`)),
-      maskToBwBlob(union, work.width, work.height, { grow: s.maskGrow, feather: s.maskFeather }).then((blob) => comfy().upload(blob, `${p.id}_union_soft.png`)),
+      maskToBwBlob(union, work.width, work.height, { grow: s.maskGrow + s.maskFeather, keepOut }).then((blob) => comfy().upload(blob, `${p.id}_union_hard.png`)),
+      maskToBwBlob(union, work.width, work.height, { grow: s.maskGrow, feather: s.maskFeather, keepOut }).then((blob) => comfy().upload(blob, `${p.id}_union_soft.png`)),
     ]);
     // Diffusion cost scales with pixels, so only the edited region (plus context) is sampled.
     const crop = s.cropToMask === false ? null : planCrop(maskBBox(union, work.width, work.height), work.width, work.height);

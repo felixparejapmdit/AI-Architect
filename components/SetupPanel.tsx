@@ -89,6 +89,9 @@ export function SetupPanel({ refreshKey = 0 }: { refreshKey?: number }) {
   const missingNodes = r.nodes.filter((n) => !n.installed);
   const issues = r.running?.issues ?? [];
   const flags = r.running ? r.running.argv.filter((a) => a.startsWith("--") && a !== "--listen" && a !== "--port").join(" ") || "default flags" : "";
+  // Models can download for hours: the server can still be started once setup's own attempt is over.
+  const serverStep = job?.steps.find((s) => s.id === "server")?.status;
+  const canStartNow = !running || (job?.scope === "full" && serverStep !== "pending" && serverStep !== "running");
 
   const plan: string[] = [];
   if (missingNodes.length) plan.push(`install ${missingNodes.map((n) => n.name).join(", ")}`);
@@ -104,7 +107,7 @@ export function SetupPanel({ refreshKey = 0 }: { refreshKey?: number }) {
         <Wand2 size={15} className="text-accent" />
         <h3 className="text-[13px] font-semibold">Setup</h3>
         <span className={cx("ml-auto text-xs", r.ready ? "font-medium text-ok" : "text-mute")}>
-          {r.ready ? "Everything is ready" : `${r.profile === "studio" ? "Studio (GPU)" : "Lite (CPU)"} profile for this machine`}
+          {r.ready ? "Everything is ready" : `${r.profile === "studio" ? "Studio (SDXL)" : "Lite (SD1.5)"} profile for this machine`}
         </span>
       </header>
       <ul className="divide-y divide-line px-3 text-xs">
@@ -122,7 +125,7 @@ export function SetupPanel({ refreshKey = 0 }: { refreshKey?: number }) {
           state={!r.running ? "bad" : issues.length ? "warn" : "ok"}
           label="Server"
           action={
-            !running && r.install?.canStart && (!r.running || issues.length > 0) ? (
+            canStartNow && r.install?.canStart && (!r.running || issues.length > 0) ? (
               <Button size="sm" disabled={serverBusy} onClick={() => void startComfyFromStrata(!!r.running)}>
                 {serverBusy ? <Loader2 size={12} className="animate-spin" /> : r.running ? <RotateCw size={12} /> : <Play size={12} />} {r.running ? "Restart" : "Start"}
               </Button>
