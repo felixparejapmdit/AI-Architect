@@ -21,30 +21,32 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the pipeline and how it dep
 
 ## Requirements
 
-- Node.js 20+ (developed on 24)
+- Node.js 20.9+ (developed on 24)
 - ComfyUI **0.42 or newer** (native SAM3, Depth Anything 3 and Canny nodes): a manual install with its own venv, the Windows portable build, or ComfyUI Desktop. Setup adds the
-  [ComfyUI_IPAdapter_plus](https://github.com/cubiq/ComfyUI_IPAdapter_plus) custom node
-- Google Chrome or Microsoft Edge (used headless for PDF export)
+  [ComfyUI_IPAdapter_plus](https://github.com/cubiq/ComfyUI_IPAdapter_plus) custom node (and [Ultimate SD Upscale](https://github.com/ssitu/ComfyUI_UltimateSDUpscale) on the Studio profile)
+- Google Chrome or Microsoft Edge (used headless for PDF export); the Playwright tests need Google Chrome
+- The project on an NTFS (or other junction/symlink-capable) drive: `npm run build` fails on exFAT with `failed to create junction point`, because Turbopack cannot create its links there
 
 ## Run
 
 ```bash
-cd "D:\PROJECTS\Strata PWA"
 npm install
 npm run build
 npm start            # http://127.0.0.1:4787
 ```
 
+Run these from the project folder.
+
 Then open **Model manager → Set up everything**. Strata does the rest:
 
 - **Finds ComfyUI**: the running server (on 8188, 8189, 8000, …, using ComfyUI's own folder list), ComfyUI Desktop's base path, or a `ComfyUI*` folder in your home, Documents, Desktop or the usual places on every drive (`X:\ComfyUI`, `X:\AI`, `X:\PROJECTS`, portable builds). It saves the folder and URL; if ComfyUI later answers on a different local port, Strata switches to it by itself.
 - **Reads the hardware**: CPU-only or CUDA/ROCm PyTorch build, NVIDIA VRAM and RAM pick the profile (Lite / Studio) and the launch flags.
-- **Installs missing node packs** (IPAdapter Plus) with Git, or as a zip through ComfyUI's own Python when Git is not installed.
+- **Installs missing node packs** (IPAdapter Plus; Ultimate SD Upscale on Studio) with Git, or as a zip through ComfyUI's own Python when Git is not installed.
 - **Starts ComfyUI** in the background with the right flags (`--cpu` without a GPU, local only, no browser pop-up), or **restarts** it when it runs with a flag that breaks Strata (`--fp16-unet`, `--fp8_e4m3fn-unet` on CPU). It never restarts while a job is queued, and never stops a process that is not ComfyUI. Its log is `.strata/comfyui.log`.
 - **Installs every model this machine needs**, fastest first: an identical copy already on the machine (Hugging Face cache, another ComfyUI, A1111/Forge/Fooocus/StabilityMatrix, Downloads) is hard-linked in seconds without using more disk space; only the rest is downloaded, two at a time, resuming dropped connections. Every file is checked against Hugging Face's SHA-256 before it is installed.
 - **Makes the low-memory copies** (fp8-ready UNet, text encoder, fp16 CLIP Vision) on CPU / small-RAM hosts as soon as their source is in place.
 
-**Start ComfyUI** buttons also appear in Settings and the Render tab whenever ComfyUI is offline, and **Auto-detect** in Settings fills in the folder and URL. Use `npm run dev` while developing; the service worker (offline shell, installable PWA) only registers in production builds.
+**Start ComfyUI** in Settings and **Start** in the Render tab also appear whenever ComfyUI is offline, and **Auto-detect** in Settings fills in the folder and URL. Use `npm run dev` while developing; the service worker (offline shell, installable PWA) only registers in production builds.
 
 Downloads are limited by your internet line, not by Strata: on a 13 Mbps (1.6 MB/s) connection the full Lite set (8.6 GB) takes about 90 minutes, and splitting files over several connections measured no faster. Reusing local copies is what makes setup fast.
 
@@ -61,7 +63,7 @@ Downloads are limited by your internet line, not by Strata: on a 13 Mbps (1.6 MB
 
 | Key | Action |
 |---|---|
-| `V` / `B` / `E` / `W` | Pan / brush / eraser / magic wand |
+| `V` or `H` / `B` / `E` / `W` | Pan / brush / eraser / magic wand |
 | `1` `2` `3` `4` `0` | Floor / walls / ceiling / furniture / protected |
 | `[` `]` | Brush size |
 | `Alt` + paint or click | Erase / subtract |
@@ -69,6 +71,7 @@ Downloads are limited by your internet line, not by Strata: on a 13 Mbps (1.6 MB
 | `Ctrl` + scroll | Zoom |
 | `F` / `C` / `M` | Fit / toggle compare / toggle masks |
 | `Ctrl+Z` / `Ctrl+Enter` | Undo mask edit / generate |
+| `Esc` | Close dialog |
 
 ## Performance (CPU / 8 GB machines)
 
@@ -104,7 +107,8 @@ What you should do:
 ```bash
 npm test          # graph builders vs. a captured ComfyUI 0.42 schema, BOQ, programme and checks, styles, material rules,
                   # texture classifier and equalizer, proposal HTML, setup detection, local-copy reuse and checksums
-npm run test:e2e  # Playwright, installed Chrome: every page and button, Generate/4K/PDF, one-click setup, start/restart,
+npm run build     # needed first: test:e2e serves the production build through `npm start`
+npm run test:e2e  # Playwright, installed Chrome: the main pages and workflows, Generate/4K/PDF, one-click setup, start/restart,
                   # auto-detect, styles and proposal checks, with ComfyUI mocked (~1 min)
 npm run typecheck
 
