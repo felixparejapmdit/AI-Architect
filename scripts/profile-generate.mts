@@ -9,6 +9,8 @@
 // --no-free   keep ComfyUI's model cache (by default it is evicted first, as the app does on CPU)
 // --crop      diffuse only the edited region, planned from the uploaded union mask like the app does
 // --no-refs   skip reference images (no IP-Adapter / CLIP Vision), text-only materials
+// --prompt    per-surface prompt, repeatable: --prompt "walls=walls: smooth matte paint"
+// --global    global prompt (default: "professional architectural interior photograph")
 import fs from "node:fs";
 import path from "node:path";
 import { applyDefaults, validatePrompt, type ObjectInfo } from "../lib/workflow/graph.ts";
@@ -41,7 +43,8 @@ const info = (await (await fetch(`${COMFY}/object_info`)).json()) as ObjectInfo;
 const models = resolveModels("lite", settings, info);
 
 const refsFor = (b: BucketId) => args.includes("--no-refs") ? [] : fs.readdirSync(INPUT_DIR).filter((f) => f.startsWith(`${project}_ref_`)).map((f) => `strata/${f}`).slice(0, b === surfacesArg[0] ? 4 : 0);
-const surfaces: SurfaceInput[] = surfacesArg.map((b) => ({ bucket: b, mask: `strata/${project}_mask_${b}.png`, refs: refsFor(b), weight: 0.85, prompt: `${b}: polished white marble` }));
+const promptFor = (b: BucketId) => args.flatMap((x, i) => (x === "--prompt" && args[i + 1]?.startsWith(`${b}=`) ? [args[i + 1].slice(b.length + 1)] : []))[0] ?? `${b}: polished white marble`;
+const surfaces: SurfaceInput[] = surfacesArg.map((b) => ({ bucket: b, mask: `strata/${project}_mask_${b}.png`, refs: refsFor(b), weight: 0.85, prompt: promptFor(b) }));
 
 // Read the base image size from the PNG header (IHDR) to size the graph like the app does.
 const png = fs.readFileSync(path.join(INPUT_DIR, `${project}_base.png`));
@@ -71,7 +74,7 @@ const graph = buildGenerationGraph({
   finalWidth: final.width,
   finalHeight: final.height,
   surfaces,
-  globalPrompt: "professional architectural interior photograph",
+  globalPrompt: arg("global") ?? "professional architectural interior photograph",
   seed: Number(arg("seed") ?? 42),
   prefix: `strata/profile_${Date.now()}`,
   crop,

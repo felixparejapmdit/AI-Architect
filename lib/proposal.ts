@@ -1,5 +1,6 @@
 import type { Boq } from "./boq";
 import { php } from "./boq";
+import { sceneOf } from "./buckets";
 import type { GuidelineGroup } from "./guidelines";
 import type { Material } from "./materials";
 import { spanLabel, WORK_DAYS_PER_WEEK, type Programme } from "./programme";
@@ -40,6 +41,7 @@ const qty = (n: number) => n.toLocaleString("en-PH", { maximumFractionDigits: 2 
 export function renderProposalHtml(p: ProposalPayload, fontCss = ""): string {
   const { project: pr, boq } = p;
   const m = pr.meta;
+  const exterior = sceneOf(m.zone) === "exterior";
   const size = p.paper === "A3" ? "A3 landscape" : "A4 landscape";
 
   const cover = `
@@ -114,9 +116,13 @@ export function renderProposalHtml(p: ProposalPayload, fontCss = ""): string {
   const boqPage = `
   <section class="page flow">
     <header><span class="num">03</span><h2>Bill of quantities</h2></header>
-    <p class="basis">Basis: floor ${qty(boq.areas.floor)} m² · ceiling ${qty(boq.areas.ceiling)} m² · walls ${qty(boq.areas.walls)} m²
-      (perimeter ${qty(boq.areas.perimeter)} m × ${qty(m.ceilingHeight)} m height, less ${m.openingsPct}% openings)${m.furniturePieces ? ` · ${m.furniturePieces} furniture pieces` : ""}.
-      Rates are indicative Metro Manila figures in PHP and must be confirmed by supplier quotation before tender; quantities come from the stated room dimensions, not from the render.</p>
+    <p class="basis">${
+      exterior
+        ? `Basis: facade ${qty(boq.areas.walls)} m² (${qty(boq.areas.perimeter)} m long × ${qty(m.ceilingHeight)} m high, less ${m.openingsPct}% openings) · roof ${qty(boq.areas.ceiling)} m² · paving ${qty(boq.areas.floor)} m²${boq.areas.landscape ? ` · landscape ${qty(boq.areas.landscape)} m²` : ""}.`
+        : `Basis: floor ${qty(boq.areas.floor)} m² · ceiling ${qty(boq.areas.ceiling)} m² · walls ${qty(boq.areas.walls)} m²
+      (perimeter ${qty(boq.areas.perimeter)} m × ${qty(m.ceilingHeight)} m height, less ${m.openingsPct}% openings)${m.furniturePieces ? ` · ${m.furniturePieces} furniture pieces` : ""}.`
+    }
+      Rates are indicative Metro Manila figures in PHP and must be confirmed by supplier quotation before tender; quantities come from the stated ${exterior ? "measurements" : "room dimensions"}, not from the render.</p>
     <table class="boq">
       <colgroup><col><col style="width:22mm"><col style="width:18mm"><col style="width:26mm"><col style="width:32mm"></colgroup>
       <thead><tr><th>Description</th><th class="c">Unit</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>

@@ -1,5 +1,5 @@
-import type { LayerId } from "../types";
-import { LAYER_INFO } from "../buckets";
+import type { LayerId, Scene } from "../types";
+import { layerInfo } from "../buckets";
 import { Graph, type ApiPrompt } from "./graph";
 
 export interface SegmentationRequest {
@@ -10,6 +10,8 @@ export interface SegmentationRequest {
   prefix: string;
   /** SAM decoder refinement passes per detection; 1 is much cheaper on CPU. */
   refineIterations?: number;
+  /** Which concepts to look for: rooms (default) or building exteriors. */
+  scene?: Scene;
 }
 
 export interface SegmentationGraph {
@@ -33,7 +35,7 @@ export function buildSegmentationGraph(req: SegmentationRequest): SegmentationGr
   const image = g.add("LoadImage", { image: req.image }, "Base image");
 
   for (const layer of req.layers) {
-    const info = LAYER_INFO[layer];
+    const info = layerInfo(layer, req.scene);
     const text = g.add("CLIPTextEncode", { text: info.samPrompt, clip: Graph.out(sam, 1) }, `${info.label} concepts`);
     const detect = g.add(
       "SAM3_Detect",

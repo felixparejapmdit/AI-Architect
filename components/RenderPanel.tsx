@@ -4,16 +4,17 @@ import { useState } from "react";
 import { Check, X, Dices, ChevronDown, Cpu, Zap, Loader2, Play } from "lucide-react";
 import { patchProject, setProfile, useStore } from "@/lib/store";
 import { startComfyFromStrata } from "@/lib/setup-client";
-import { checkpointsForProfile, PROFILES, resolveModels } from "@/lib/workflow/profiles";
+import { checkpointsForProfile, LITE_CPU_QUALITY, LITE_GPU_QUALITY, PROFILES, resolveModels } from "@/lib/workflow/profiles";
 import { comboOptions } from "@/lib/workflow/graph";
 import type { GenSettings, PipelineProfile } from "@/lib/types";
 import { Button, cx, Field, inputClass, NumberInput, Section, Select, Slider, Toggle } from "./ui";
 import { PerfHints } from "./PerfHints";
 
-/** Lite + LCM speed presets; sampling cost scales with pixels × steps (Draft ≈ 0.3× Standard). */
+/** Lite presets: LCM for speed (Draft ≈ 0.3× Standard); High is full sampling, for GPUs. */
 const QUALITY_PRESETS = [
-  { id: "draft", label: "Draft", hint: "512 px · 4 steps · fastest", workLongSide: 512, steps: 4 },
-  { id: "standard", label: "Standard", hint: "768 px · 6 steps · final", workLongSide: 768, steps: 6 },
+  { id: "draft", label: "Draft", hint: "512 px · 4 steps · fastest", gpuOnly: false, settings: { ...LITE_CPU_QUALITY, workLongSide: 512, steps: 4 } },
+  { id: "standard", label: "Standard", hint: "768 px · 6 LCM steps", gpuOnly: false, settings: LITE_CPU_QUALITY },
+  { id: "high", label: "High", hint: "1024 px · 25 steps · sharpest (GPU)", gpuOnly: true, settings: LITE_GPU_QUALITY },
 ] as const;
 
 export function RenderPanel() {
@@ -26,6 +27,8 @@ export function RenderPanel() {
   const samplers = comboOptions(info, "KSampler", "sampler_name") ?? [s.sampler];
   const schedulers = comboOptions(info, "KSampler", "scheduler") ?? [s.scheduler];
   const set = (patch: Partial<GenSettings>) => patchProject((d) => void Object.assign(d.settings, patch));
+  const gpu = !!doctor?.online && !!doctor.device?.type && doctor.device.type !== "cpu";
+  const presets = QUALITY_PRESETS.filter((q) => !q.gpuOnly || gpu || (!s.useLcm && s.workLongSide === q.settings.workLongSide));
 
   return (
     <div>
@@ -43,7 +46,7 @@ export function RenderPanel() {
                 {p === "lite" ? "Lite" : "Studio"}
                 {doctor?.recommendedProfile === p && <span className="rounded bg-ok/10 px-1 text-[9px] font-semibold uppercase text-ok">Fits</span>}
               </span>
-              <span className="mt-0.5 block text-[11px] leading-snug text-mute">{p === "lite" ? "SD1.5 + LCM · CPU / ≤8 GB" : "SDXL · NVIDIA ≥12 GB"}</span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-mute">{p === "lite" ? "SD1.5 · CPU or ≤8 GB GPU" : "SDXL · NVIDIA ≥12 GB"}</span>
             </button>
           ))}
         </div>
@@ -54,17 +57,17 @@ export function RenderPanel() {
         <ModelStatus models={models} useDepth={s.useDepth} useLcm={s.useLcm} online={!!doctor?.online} />
       </Section>
 
-      {s.profile === "lite" && s.useLcm && (
+      {s.profile === "lite" && (
         <Section title="Quality">
-          <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Render quality">
-            {QUALITY_PRESETS.map((q) => {
-              const active = s.workLongSide === q.workLongSide && s.steps === q.steps;
+          <div className={cx("grid gap-1.5", presets.length === 3 ? "grid-cols-3" : "grid-cols-2")} role="radiogroup" aria-label="Render quality">
+            {presets.map((q) => {
+              const active = s.workLongSide === q.settings.workLongSide && s.steps === q.settings.steps && s.useLcm === q.settings.useLcm;
               return (
                 <button
                   key={q.id}
                   role="radio"
                   aria-checked={active}
-                  onClick={() => set({ workLongSide: q.workLongSide, steps: q.steps })}
+                  onClick={() => set({ ...q.settings })}
                   className={cx("rounded-lg border p-2.5 text-left transition", active ? "border-accent bg-accent-soft/60 ring-1 ring-accent/30" : "border-line hover:bg-paper")}
                 >
                   <span className="block text-[13px] font-semibold">{q.label}</span>
@@ -73,7 +76,9 @@ export function RenderPanel() {
               );
             })}
           </div>
-          <p className="text-[11px] leading-snug text-faint">Iterate on materials in Draft, then switch to Standard for the version you keep.</p>
+          <p className="text-[11px] leading-snug text-faint">
+            {gpu ? "Try materials in Draft, then render the keeper in High: real veining, grain and reflections instead of LCM's speckle." : "Iterate on materials in Draft, then switch to Standard for the version you keep."}
+          </p>
         </Section>
       )}
 

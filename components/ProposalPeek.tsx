@@ -7,7 +7,7 @@ import { computeBoq, php } from "@/lib/boq";
 import { buildGuidelines } from "@/lib/guidelines";
 import { buildProgramme, proposalChecks, spanLabel } from "@/lib/programme";
 import { exportProposal, proposalSelections } from "@/lib/pipeline";
-import { BUCKETS, LAYER_INFO, zoneLabel } from "@/lib/buckets";
+import { BUCKETS, layerInfo, sceneOf, zoneLabel } from "@/lib/buckets";
 import { BlobImg, Button, cx } from "./ui";
 
 export function ProposalPeek() {
@@ -64,7 +64,7 @@ export function ProposalPeek() {
                   {!refs.length && <div className="h-9 w-9 rounded-md bg-paper" />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-accent">{LAYER_INFO[b].label}</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-accent">{layerInfo(b, sceneOf(project.meta.zone)).label}</div>
                   <div className="truncate text-[13px]">{m?.name ?? "Not specified"}</div>
                 </div>
                 {m && <div className="shrink-0 text-xs tabular-nums text-mute">{php(boq.sections.find((s) => s.bucket === b)?.subtotal ?? 0, 0)}</div>}
@@ -96,7 +96,7 @@ export function ProposalPeek() {
             ))}
           </ol>
           <p className="mt-1.5 text-[11px] leading-snug text-faint">
-            One crew, Monday to Saturday, top-down (ceiling, walls, floor, furniture); each trade starts once its material is on site. Indicative: confirm with your contractor.{programme.tasks.some((t) => t.assumed) ? " * library defaults (no crew data for that material)." : ""}
+            One crew, Monday to Saturday, top-down ({sceneOf(project.meta.zone) === "exterior" ? "roof, facade, ground, landscape" : "ceiling, walls, floor, furniture"}); each trade starts once its material is on site. Indicative: confirm with your contractor.{programme.tasks.some((t) => t.assumed) ? " * library defaults (no crew data for that material)." : ""}
           </p>
         </div>
       )}
@@ -116,7 +116,7 @@ export function ProposalPeek() {
       )}
 
       <p className="text-xs text-mute">
-        {guidelines.reduce((n, g) => n + g.items.length, 0)} tropical installation notes across {guidelines.length} groups will be included. Quantities come from the room dimensions in the Project tab.
+        {guidelines.reduce((n, g) => n + g.items.length, 0)} tropical installation notes across {guidelines.length} groups will be included. Quantities come from the {sceneOf(project.meta.zone) === "exterior" ? "measurements" : "room dimensions"} in the Project tab.
       </p>
 
       <div className="flex items-center gap-2 border-t border-line pt-4">

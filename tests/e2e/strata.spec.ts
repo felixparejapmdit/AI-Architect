@@ -211,6 +211,51 @@ test.describe("Strata", () => {
     expect((await download).suggestedFilename()).toMatch(/proposal\.pdf$/);
   });
 
+  test("Exterior mode: ground, facade and roof layers, exterior systems and styles, exterior prompt and costing", async ({ page }) => {
+    const comfy = await mockComfy(page, { installed: FULL_LITE });
+    await page.goto("/");
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Choose image" }).click();
+    await (await chooser).setFiles(path.join(FIXTURES, "house.jpg"));
+    await expect(page.locator('img[alt="Base"]')).toBeVisible();
+
+    await page.getByRole("radiogroup", { name: "Scene" }).getByRole("radio", { name: "Exterior" }).click();
+    const layers = page.getByRole("radiogroup", { name: "Mask layer" }).getByRole("radio");
+    await expect(layers).toHaveCount(5);
+    expect(await layers.evaluateAll((els) => els.map((e) => e.getAttribute("title")))).toEqual(["Ground (1)", "Facade (2)", "Roof (3)", "Landscape (4)", "Protected (0)"]);
+    // Exterior styles only, and the roof offers roofing, never an interior ceiling.
+    await expect(page.getByRole("button", { name: "Modern tropical" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Japandi" })).toHaveCount(0);
+    const roofOptions = await card(page, "Roof").locator("select option").allInnerTexts();
+    expect(roofOptions.some((o) => /long-span roofing/.test(o))).toBe(true);
+    expect(roofOptions.some((o) => /gypsum/i.test(o))).toBe(false);
+
+    await paint(page, "1", [[0.85, 0.05, 0.95], [0.95, 0.05, 0.95]]);
+    await paint(page, "2", [[0.45, 0.1, 0.3], [0.55, 0.7, 0.85]]);
+    await paint(page, "3", [[0.4, 0.05, 0.12]], 30);
+    await page.getByRole("button", { name: "Modern tropical" }).click();
+    await page.getByRole("button", { name: /Generate 3 surfaces/ }).click();
+    await expect(page.locator("aside").first().getByText("Render 1")).toBeVisible({ timeout: 60_000 });
+    const render = comfy.prompts.at(-1)!;
+    const texts = Object.values(render).filter((n) => n.class_type === "CLIPTextEncode").map((n) => String(n.inputs.text));
+    expect(texts.some((t) => /architectural exterior photograph of a house exterior/.test(t))).toBe(true);
+    expect(texts.some((t) => /^roof: pre-painted long span metal roofing/.test(t))).toBe(true);
+    expect(texts.some((t) => /^building facade: horizontal fibre cement plank/.test(t))).toBe(true);
+
+    await page.getByRole("button", { name: "Project", exact: true }).click();
+    await expect(page.getByText("Facade length")).toBeVisible();
+    await expect(page.getByText("Roof area")).toBeVisible();
+    await expect(page.locator("dt", { hasText: "Roof: Pre-painted long-span roofing" })).toBeVisible();
+
+    // Back to Interior: interior layers again, and no exterior system left on any surface.
+    await page.getByRole("radiogroup", { name: "Scene" }).getByRole("radio", { name: "Interior" }).click();
+    await page.getByRole("button", { name: "Masks", exact: true }).click();
+    expect(await layers.evaluateAll((els) => els.map((e) => e.getAttribute("title")))).toEqual(["Floor (1)", "Walls (2)", "Ceiling (3)", "Furniture (4)", "Protected (0)"]);
+    await expect(page.locator("dt", { hasText: /long-span roofing/ })).toHaveCount(0);
+    // Exterior systems were cleared and nothing interior was picked yet, so nothing is costed.
+    await expect(page.getByText("Assign materials to surfaces to see costs.")).toBeVisible();
+  });
+
   test("a second render reuses cached embeddings and loaded models", async ({ page }) => {
     const comfy = await mockComfy(page);
     await page.goto("/");

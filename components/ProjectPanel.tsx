@@ -2,7 +2,8 @@
 
 import { FileText } from "lucide-react";
 import { patchProject, setZone, useStore } from "@/lib/store";
-import { ZONES, isWetZone } from "@/lib/buckets";
+import { ZONES, isWetZone, sceneOf } from "@/lib/buckets";
+import { SceneSwitch } from "./SceneSwitch";
 import { computeBoq, measuredAreas, php } from "@/lib/boq";
 import { proposalSelections } from "@/lib/pipeline";
 import { buildProgramme, spanLabel } from "@/lib/programme";
@@ -17,6 +18,7 @@ export function ProjectPanel() {
   const boq = computeBoq(m, proposalSelections());
   const programme = buildProgramme(boq);
   const areas = measuredAreas(m);
+  const exterior = sceneOf(m.zone) === "exterior";
 
   return (
     <div>
@@ -45,10 +47,39 @@ export function ProjectPanel() {
         </div>
       </Section>
 
-      <Section title="Space">
-        <Field label="Zone" hint={isWetZone(m.zone) ? "Wet zone: wet-rated systems, waterproofing and epoxy grout are enforced." : "Dry zone."}>
-          <Select value={m.zone} onChange={(v) => setZone(v as ZoneType)} options={ZONES.map((z) => ({ value: z.id, label: z.label }))} />
+      <Section title={exterior ? "Building" : "Space"}>
+        <SceneSwitch />
+        <Field
+          label={exterior ? "Building type" : "Zone"}
+          hint={exterior ? "Only weather-rated exterior systems are offered." : isWetZone(m.zone) ? "Wet zone: wet-rated systems, waterproofing and epoxy grout are enforced." : "Dry zone."}
+        >
+          <Select value={m.zone} onChange={(v) => setZone(v as ZoneType)} options={ZONES.filter((z) => z.scene === sceneOf(m.zone)).map((z) => ({ value: z.id, label: z.label }))} />
         </Field>
+        {exterior ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Facade length" hint="Width of the faces being refinished">
+              <NumberInput value={m.perimeter} min={0} step={0.5} suffix="m" onChange={(v) => set({ perimeter: Math.max(0, v) })} />
+            </Field>
+            <Field label="Facade height">
+              <NumberInput value={m.ceilingHeight} min={0} step={0.1} suffix="m" onChange={(v) => set({ ceilingHeight: Math.max(0, v) })} />
+            </Field>
+            <Field label="Openings" hint={`Facade ${areas.walls.toFixed(1)} m² net`}>
+              <NumberInput value={m.openingsPct} min={0} max={90} suffix="%" onChange={(v) => set({ openingsPct: v })} />
+            </Field>
+            <Field label="Roof area" hint="Sloped area, not plan">
+              <NumberInput value={m.roofArea ?? 0} min={0} step={1} suffix="m²" onChange={(v) => set({ roofArea: Math.max(0, v) })} />
+            </Field>
+            <Field label="Paving area">
+              <NumberInput value={m.floorArea} min={0} step={0.5} suffix="m²" onChange={(v) => set({ floorArea: Math.max(0, v) })} />
+            </Field>
+            <Field label="Landscape area">
+              <NumberInput value={m.landscapeArea ?? 0} min={0} step={0.5} suffix="m²" onChange={(v) => set({ landscapeArea: Math.max(0, v) })} />
+            </Field>
+            <Field label="Contingency">
+              <NumberInput value={m.contingencyPct} min={0} max={50} suffix="%" onChange={(v) => set({ contingencyPct: v })} />
+            </Field>
+          </div>
+        ) : (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Floor area">
             <NumberInput value={m.floorArea} min={0} step={0.5} suffix="m²" onChange={(v) => set({ floorArea: Math.max(0, v) })} />
@@ -69,6 +100,7 @@ export function ProjectPanel() {
             <NumberInput value={m.contingencyPct} min={0} max={50} suffix="%" onChange={(v) => set({ contingencyPct: v })} />
           </Field>
         </div>
+        )}
       </Section>
 
       <Section title="Estimate">

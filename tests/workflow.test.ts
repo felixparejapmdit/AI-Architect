@@ -322,3 +322,26 @@ test("low-memory hosts run the depth lock alone instead of two ControlNets", () 
   const noDepth = buildGenerationGraph({ ...liteRequest({ useDepth: false }, withDepth), singleControlNet: true });
   assert.equal(count(noDepth, "Canny"), 1);
 });
+
+test("Lite on a GPU renders at High quality; CPU keeps LCM; tuned projects are left alone", async () => {
+  const { LITE_GPU_QUALITY, upgradeForGpu } = await import("../lib/workflow/profiles");
+  const cpu = defaultSettings("lite");
+  assert.equal(cpu.useLcm, true);
+  assert.equal(cpu.workLongSide, 768);
+  const gpu = defaultSettings("lite", "", { gpu: true });
+  assert.deepEqual({ ...LITE_GPU_QUALITY }, { workLongSide: gpu.workLongSide, steps: gpu.steps, cfg: gpu.cfg, sampler: gpu.sampler, scheduler: gpu.scheduler, useLcm: gpu.useLcm });
+  assert.equal(defaultSettings("studio", "", { gpu: true }).steps, 28, "Studio keeps its own defaults");
+  // An untouched CPU-default project upgrades once; a tuned one does not.
+  const old = defaultSettings("lite");
+  assert.equal(upgradeForGpu(old), true);
+  assert.equal(old.useLcm, false);
+  assert.equal(upgradeForGpu(old), false, "already upgraded");
+  const draft = { ...defaultSettings("lite"), workLongSide: 512, steps: 4 };
+  assert.equal(upgradeForGpu(draft), false, "the user's Draft choice is kept");
+  // Without LCM the graph must not load the LCM LoRA.
+  const g = buildGenerationGraph(liteRequest({ ...LITE_GPU_QUALITY }));
+  assert.ok(!Object.values(g.prompt).some((n) => n.class_type === "LoraLoader"));
+  const ks = Object.values(g.prompt).find((n) => n.class_type === "KSampler")!;
+  assert.equal(ks.inputs.steps, 25);
+  assert.equal(ks.inputs.sampler_name, "dpmpp_2m");
+});

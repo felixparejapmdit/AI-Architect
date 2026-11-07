@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { ArrowLeft, Plus, Droplets, RotateCcw, Trash2 } from "lucide-react";
-import { deleteLibraryMaterial, saveLibraryMaterial, toast, useStore } from "@/lib/store";
-import { MATERIALS, type Material } from "@/lib/materials";
+import { deleteLibraryMaterial, saveLibraryMaterial, toast, useScene, useStore } from "@/lib/store";
+import { MATERIALS, materialScene, type Material } from "@/lib/materials";
 import { php } from "@/lib/boq";
-import { BUCKETS, LAYER_INFO } from "@/lib/buckets";
-import type { BucketId, TextureFamily } from "@/lib/types";
+import { BUCKETS, layerInfo } from "@/lib/buckets";
+import type { BucketId, Scene, TextureFamily } from "@/lib/types";
 import { uid } from "@/lib/db";
 import { Button, cx, Field, inputClass, NumberInput, Select, TextInput, Toggle } from "./ui";
 
@@ -16,17 +16,26 @@ export function MaterialLibrary() {
   const library = useStore((s) => s.library);
   const [editing, setEditing] = useState<Material | null>(null);
   const [filter, setFilter] = useState<BucketId | "all">("all");
+  // Opens on the open project's scene; interior and exterior systems are listed separately.
+  const [scene, setScene] = useState<Scene>(useScene());
 
   if (editing) return <Editor initial={editing} onDone={() => setEditing(null)} />;
 
-  const list = library.filter((m) => filter === "all" || m.buckets.includes(filter));
+  const list = library.filter((m) => materialScene(m) === scene && (filter === "all" || m.buckets.includes(filter)));
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg bg-paper p-0.5" role="radiogroup" aria-label="Library scene">
+          {(["interior", "exterior"] as const).map((sc) => (
+            <button key={sc} role="radio" aria-checked={scene === sc} onClick={() => setScene(sc)} className={cx("h-7 rounded-md px-2.5 text-xs font-medium capitalize", scene === sc ? "bg-white shadow-sm" : "text-mute hover:text-ink")}>
+              {sc}
+            </button>
+          ))}
+        </div>
         <div className="flex flex-wrap rounded-lg bg-paper p-0.5">
           {(["all", ...BUCKETS] as const).map((b) => (
             <button key={b} onClick={() => setFilter(b)} className={cx("h-7 rounded-md px-2.5 text-xs font-medium", filter === b ? "bg-white shadow-sm" : "text-mute hover:text-ink")}>
-              {b === "all" ? "All" : LAYER_INFO[b].label}
+              {b === "all" ? "All" : layerInfo(b, scene).label}
             </button>
           ))}
         </div>
@@ -40,7 +49,8 @@ export function MaterialLibrary() {
               family: "stone",
               buckets: [filter === "all" ? "floor" : filter],
               zones: "any",
-              wetOk: false,
+              wetOk: scene === "exterior",
+              scene,
               brands: "",
               suppliers: [{ name: "", area: "" }],
               spec: "",
@@ -74,7 +84,7 @@ export function MaterialLibrary() {
                 <div className="mt-0.5 text-xs text-mute">{m.brands} · {m.suppliers.map((s) => s.name).join(", ")}</div>
                 <div className="mt-1 flex flex-wrap gap-1">
                   {m.buckets.map((b) => (
-                    <span key={b} className="rounded bg-paper px-1.5 text-[10px] text-mute">{LAYER_INFO[b].label}</span>
+                    <span key={b} className="rounded bg-paper px-1.5 text-[10px] text-mute">{layerInfo(b, scene).label}</span>
                   ))}
                   <span className="rounded bg-paper px-1.5 text-[10px] capitalize text-mute">{m.family}</span>
                 </div>
@@ -129,12 +139,18 @@ function Editor({ initial, onDone }: { initial: Material; onDone: () => void }) 
             const on = m.buckets.includes(b);
             return (
               <button key={b} onClick={() => set({ buckets: on ? m.buckets.filter((x) => x !== b) : [...m.buckets, b] })} className={cx("h-7 rounded-md border px-2.5 text-xs", on ? "border-accent bg-accent-soft text-accent" : "border-line text-mute hover:bg-paper")}>
-                {LAYER_INFO[b].label}
+                {layerInfo(b, materialScene(m)).label}
               </button>
             );
           })}
         </div>
       </Field>
+      <Toggle
+        label="Exterior system"
+        hint="Offered on building exteriors (ground, facade, roof, landscape) instead of in rooms."
+        checked={materialScene(m) === "exterior"}
+        onChange={(v) => set(v ? { scene: "exterior", wetOk: true } : { scene: undefined })}
+      />
       <Toggle label="Wet-zone rated" hint="Only wet-rated materials are suggested for bathrooms, kitchens and lanais." checked={m.wetOk} onChange={(v) => set({ wetOk: v })} />
       <Field label="Specification">
         <TextInput value={m.spec} onChange={(e) => set({ spec: e.target.value })} placeholder="Thickness, format, finish" />

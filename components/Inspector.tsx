@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff, Plus, X, Sparkles, Pin, Paintbrush, ShieldCheck, Square, FileText, Palette } from "lucide-react";
-import { addReferences, applyStyle, patchProject, removeReference, setMaterial, useStore } from "@/lib/store";
-import { BUCKETS, LAYER_INFO } from "@/lib/buckets";
-import { suggestMaterial } from "@/lib/materials";
-import { STYLE_PRESETS, styleMaterialFor } from "@/lib/styles";
+import { addReferences, applyStyle, patchProject, removeReference, setMaterial, useScene, useStore } from "@/lib/store";
+import { BUCKETS, layerInfo } from "@/lib/buckets";
+import { materialsForZone, suggestMaterial } from "@/lib/materials";
+import { stylesForZone, styleMaterialFor } from "@/lib/styles";
+import { SceneSwitch } from "./SceneSwitch";
 import { activeSurfaces, cancelJob, formatDuration, generate } from "@/lib/pipeline";
 import type { BucketId } from "@/lib/types";
 import { RenderPanel } from "./RenderPanel";
@@ -60,10 +61,14 @@ export function Inspector() {
 }
 
 function MaterialsPanel() {
+  const scene = useScene();
   return (
     <div className="space-y-2.5 p-3">
+      <SceneSwitch />
       <p className="px-1 text-xs leading-relaxed text-mute">
-        Drop reference photos into a surface. Strata reads the texture, picks a tropical-rated Philippine material, and applies it only inside that surface&apos;s mask.
+        {scene === "exterior"
+          ? "Drop reference photos onto the ground, facade, roof or landscape. Strata picks a weather-rated Philippine system and applies it only inside that mask; windows, doors, sky and trees stay as they are."
+          : "Drop reference photos into a surface. Strata reads the texture, picks a tropical-rated Philippine material, and applies it only inside that surface's mask."}
       </p>
       <StyleRow />
       {BUCKETS.map((b) => (
@@ -80,14 +85,15 @@ function StyleRow() {
   const zone = useStore((s) => s.project!.meta.zone);
   const library = useStore((s) => s.library);
   const surfaces = (["floor", "walls", "ceiling"] as const).filter((b) => buckets[b].enabled);
-  const active = surfaces.length ? STYLE_PRESETS.find((sp) => surfaces.every((b) => buckets[b].materialId === styleMaterialFor(sp, b, zone, library))) : undefined;
+  const styles = stylesForZone(zone);
+  const active = surfaces.length ? styles.find((sp) => surfaces.every((b) => buckets[b].materialId === styleMaterialFor(sp, b, zone, library))) : undefined;
   return (
     <div className="px-1">
       <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-mute">
         <Palette size={12} /> Style
       </div>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Design style">
-        {STYLE_PRESETS.map((sp) => (
+        {styles.map((sp) => (
           <button
             key={sp.id}
             title={`${sp.blurb}. Sets each enabled surface's material; reference photos still lead where you added them.`}
@@ -111,11 +117,11 @@ function BucketCard({ bucket }: { bucket: BucketId }) {
   const activeLayer = useStore((s) => s.layer);
   const hidden = useStore((s) => s.hiddenLayers.includes(bucket));
   const inputRef = useRef<HTMLInputElement>(null);
-  const info = LAYER_INFO[bucket];
+  const info = layerInfo(bucket, useScene());
   const drop = useDropTarget((files) => void addReferences(bucket, files));
 
   const suggestion = useMemo(() => suggestMaterial(bucket, zone, state.refs[0]?.analysis, library), [bucket, zone, state.refs, library]);
-  const options = library
+  const options = materialsForZone(zone, library)
     .filter((m) => m.buckets.includes(bucket))
     .map((m) => ({ value: m.id, label: m.name + (m.id === suggestion.materialId ? "  ★" : ""), group: m.custom ? "Your library" : "Catalogue" }));
   const analysis = state.refs[0]?.analysis;
@@ -246,6 +252,7 @@ function BucketCard({ bucket }: { bucket: BucketId }) {
 }
 
 function ProtectedCard() {
+  const scene = useScene();
   const mask = useStore((s) => s.project!.masks.protected);
   const active = useStore((s) => s.layer === "protected");
   // Walls or ceiling masked with nothing protected: windows, doors and beams inside those masks
@@ -266,12 +273,16 @@ function ProtectedCard() {
             Protected structure
             <span className="rounded bg-paper px-1.5 py-px text-[10px] font-medium tabular-nums text-mute">{(mask.coverage * 100).toFixed(1)}%</span>
           </span>
-          <span className="mt-0.5 block text-[11px] leading-snug text-mute">Doors, windows, mullions, columns, beams and fixtures. Subtracted from every surface, so they are never repainted.</span>
+          <span className="mt-0.5 block text-[11px] leading-snug text-mute">
+            {scene === "exterior"
+              ? "Windows, doors, railings, columns, fences, sky, trees, vehicles and people. Subtracted from every surface, so they are never repainted."
+              : "Doors, windows, mullions, columns, beams and fixtures. Subtracted from every surface, so they are never repainted."}
+          </span>
         </span>
       </button>
       {exposed && (
         <p role="note" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900">
-          Walls or ceiling are masked but nothing is protected, so any window, door, beam or light inside those masks will be repainted too. Run <b>Auto-detect</b> or paint them with the <b>Protected</b> layer (key 0).
+          {scene === "exterior" ? "Facade or roof are masked but nothing is protected, so any window, door or railing inside those masks will be repainted too." : "Walls or ceiling are masked but nothing is protected, so any window, door, beam or light inside those masks will be repainted too."} Run <b>Auto-detect</b> or paint them with the <b>Protected</b> layer (key 0).
         </p>
       )}
     </div>

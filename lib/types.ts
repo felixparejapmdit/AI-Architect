@@ -11,7 +11,12 @@ export type ZoneType =
   | "office"
   | "parking"
   | "commercial"
-  | "outdoor-covered";
+  | "outdoor-covered"
+  | "house-exterior"
+  | "commercial-exterior";
+
+/** Interior rooms or building exteriors; follows from the project's zone (see sceneOf). */
+export type Scene = "interior" | "exterior";
 
 export type PipelineProfile = "lite" | "studio";
 
@@ -70,6 +75,10 @@ export interface ProjectMeta {
   /** Percentage of wall area taken by doors/windows. */
   openingsPct: number;
   furniturePieces: number;
+  /** Exterior: roof area to re-roof, m² (on plan × pitch factor, as measured). */
+  roofArea?: number;
+  /** Exterior: lawn and planting area, m². */
+  landscapeArea?: number;
   contingencyPct: number;
   /** Client budget in PHP incl. VAT; 0 or absent = not set. */
   budgetPhp?: number;

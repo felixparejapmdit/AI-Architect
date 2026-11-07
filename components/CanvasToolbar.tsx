@@ -1,9 +1,9 @@
 "use client";
 
 import { Hand, Paintbrush, Eraser, Wand2, Undo2, Eye, EyeOff, ScanSearch, Maximize, Minus, Plus, Trash2 } from "lucide-react";
-import { masksChanged, undoMask, useStore, type Tool, type View } from "@/lib/store";
+import { masksChanged, undoMask, useScene, useStore, type Tool, type View } from "@/lib/store";
 import { masks } from "@/lib/masks";
-import { LAYERS, LAYER_INFO } from "@/lib/buckets";
+import { LAYERS, layerInfo } from "@/lib/buckets";
 import { runSegmentation } from "@/lib/pipeline";
 import { cx, IconButton, Kbd } from "./ui";
 
@@ -18,6 +18,7 @@ export function CanvasToolbar({ zoom, onFit, onZoom }: { zoom: number; onFit: ()
   const view = useStore((s) => s.view);
   const tool = useStore((s) => s.tool);
   const layer = useStore((s) => s.layer);
+  const scene = useScene();
   const brushSize = useStore((s) => s.brushSize);
   const wandTolerance = useStore((s) => s.wandTolerance);
   const showMasks = useStore((s) => s.showMasks);
@@ -61,7 +62,7 @@ export function CanvasToolbar({ zoom, onFit, onZoom }: { zoom: number; onFit: ()
             <Divider />
             <div className="flex items-center gap-0.5" role="radiogroup" aria-label="Mask layer">
               {LAYERS.map((l) => {
-                const info = LAYER_INFO[l];
+                const info = layerInfo(l, scene);
                 return (
                   <button
                     key={l}
@@ -87,7 +88,7 @@ export function CanvasToolbar({ zoom, onFit, onZoom }: { zoom: number; onFit: ()
               <Undo2 size={16} />
             </IconButton>
             <IconButton
-              title={`Clear ${LAYER_INFO[layer].label.toLowerCase()} mask`}
+              title={`Clear ${layerInfo(layer, scene).label.toLowerCase()} mask`}
               disabled={coverage === 0}
               onClick={() => {
                 masks.checkpoint(layer);

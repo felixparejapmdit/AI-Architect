@@ -45,7 +45,7 @@ export const PROFILES: Record<PipelineProfile, ProfileSpec> = {
   lite: {
     id: "lite",
     label: "Lite: CPU / ≤8 GB VRAM",
-    summary: "SD1.5 + LCM (6 steps), Canny line lock, optional depth lock, IP-Adapter Plus, ESRGAN 4K.",
+    summary: "SD1.5: 25-step sampling at 1024 px on a GPU, LCM (6 steps) on CPU. Depth lock, IP-Adapter Plus, ESRGAN 4K.",
     checkpoints: ["Realistic_Vision_V5.1_fp16-no-ema.safetensors"],
     split: {
       from: "Realistic_Vision_V5.1_fp16-no-ema.safetensors",
@@ -127,7 +127,16 @@ export const PROFILES: Record<PipelineProfile, ProfileSpec> = {
 /** Bumped when defaults change in a way saved projects should pick up; see migrateSettings(). */
 export const SETTINGS_VERSION = 3;
 
-export function defaultSettings(profile: PipelineProfile, checkpoint = ""): GenSettings {
+/**
+ * Lite on a GPU: full sampling at 1024 px. LCM's 6 steps leave a grainy, speckled finish; this
+ * renders real veining, grain and reflections (measured on an RTX 3070: ~35 s, geometry 0.998).
+ * Too slow for CPU hosts, which keep the LCM defaults.
+ */
+export const LITE_GPU_QUALITY = { workLongSide: 1024, steps: 25, cfg: 5, sampler: "dpmpp_2m", scheduler: "karras", useLcm: false } as const;
+/** Lite's CPU defaults, as far as quality goes; projects still on them move to LITE_GPU_QUALITY on a GPU. */
+export const LITE_CPU_QUALITY = { workLongSide: 768, steps: 6, cfg: 1, sampler: "lcm", scheduler: "sgm_uniform", useLcm: true } as const;
+
+export function defaultSettings(profile: PipelineProfile, checkpoint = "", opts: { gpu?: boolean } = {}): GenSettings {
   return {
     settingsVersion: SETTINGS_VERSION,
     profile,
@@ -136,7 +145,17 @@ export function defaultSettings(profile: PipelineProfile, checkpoint = ""): GenS
     extraPrompt: "",
     negativePrompt: NEGATIVE_DEFAULT,
     ...PROFILES[profile].defaults,
+    ...(profile === "lite" && opts.gpu ? LITE_GPU_QUALITY : {}),
   };
+}
+
+/** Moves a Lite project still on the CPU quality defaults to GPU quality; false when it was tuned or is not Lite. */
+export function upgradeForGpu(s: GenSettings): boolean {
+  if (s.profile !== "lite") return false;
+  const atCpuDefaults = (Object.keys(LITE_CPU_QUALITY) as (keyof typeof LITE_CPU_QUALITY)[]).every((k) => s[k] === LITE_CPU_QUALITY[k]);
+  if (!atCpuDefaults) return false;
+  Object.assign(s, LITE_GPU_QUALITY);
+  return true;
 }
 
 export interface ResolvedModels {

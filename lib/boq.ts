@@ -1,5 +1,5 @@
 import type { BucketId, ProjectMeta } from "./types";
-import { BUCKETS, LAYER_INFO } from "./buckets";
+import { BUCKETS, layerInfo, sceneOf } from "./buckets";
 import type { Material } from "./materials";
 
 export const VAT_RATE = 0.12;
@@ -32,15 +32,30 @@ export interface Boq {
   contingency: number;
   vat: number;
   total: number;
-  areas: { floor: number; ceiling: number; walls: number; perimeter: number };
+  areas: Areas;
 }
 
-export function measuredAreas(meta: ProjectMeta) {
+/** Measured quantities. Exterior: floor = paving, walls = facade, ceiling = roof, landscape = planting. */
+export interface Areas {
+  floor: number;
+  ceiling: number;
+  walls: number;
+  perimeter: number;
+  landscape: number;
+}
+
+export function measuredAreas(meta: ProjectMeta): Areas {
   const floor = Math.max(0, meta.floorArea);
+  const openings = 1 - clamp(meta.openingsPct, 0, 90) / 100;
+  if (sceneOf(meta.zone) === "exterior") {
+    // Facade length × height; no square-room guess: a facade's length is not implied by the paving.
+    const perimeter = Math.max(0, meta.perimeter);
+    return { floor, ceiling: Math.max(0, meta.roofArea ?? 0), walls: perimeter * Math.max(0, meta.ceilingHeight) * openings, perimeter, landscape: Math.max(0, meta.landscapeArea ?? 0) };
+  }
   // Without a measured perimeter, assume a square room.
   const perimeter = meta.perimeter > 0 ? meta.perimeter : 4 * Math.sqrt(floor);
-  const walls = perimeter * Math.max(0, meta.ceilingHeight) * (1 - clamp(meta.openingsPct, 0, 90) / 100);
-  return { floor, ceiling: floor, walls, perimeter };
+  const walls = perimeter * Math.max(0, meta.ceilingHeight) * openings;
+  return { floor, ceiling: floor, walls, perimeter, landscape: floor };
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -53,7 +68,8 @@ export function computeBoq(meta: ProjectMeta, selections: Partial<Record<BucketI
   for (const bucket of BUCKETS) {
     const material = selections[bucket];
     if (!material) continue;
-    const netQty = material.unit === "pc" ? Math.max(0, Math.round(meta.furniturePieces)) : round2(bucket === "walls" ? areas.walls : areas.floor);
+    const area = bucket === "walls" ? areas.walls : bucket === "ceiling" ? areas.ceiling : bucket === "furniture" ? areas.landscape : areas.floor;
+    const netQty = material.unit === "pc" ? Math.max(0, Math.round(meta.furniturePieces)) : round2(area);
     if (netQty <= 0) continue;
 
     const supplyQty = material.unit === "pc" ? netQty : round2(netQty * (1 + material.wastagePct / 100));
@@ -95,7 +111,7 @@ export function computeBoq(meta: ProjectMeta, selections: Partial<Record<BucketI
     }
     sections.push({
       bucket,
-      label: LAYER_INFO[bucket].label,
+      label: layerInfo(bucket, sceneOf(meta.zone)).label,
       material,
       netQty,
       lines,

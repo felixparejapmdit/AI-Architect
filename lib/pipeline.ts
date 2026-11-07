@@ -1,7 +1,7 @@
 "use client";
 
 import type { BucketId, LayerId, Project, RenderRecord } from "./types";
-import { BUCKETS, LAYERS, LAYER_INFO, zoneLabel } from "./buckets";
+import { BUCKETS, LAYERS, layerInfo, sceneOf, zoneLabel } from "./buckets";
 import { findMaterial, type Material } from "./materials";
 import { computeBoq } from "./boq";
 import { buildProgramme } from "./programme";
@@ -172,7 +172,7 @@ export async function runSegmentation(only?: LayerId[]) {
   try {
     const edit = (await getBlob(p.base.editBlobId))!;
     const image = await comfy().upload(edit, `${p.id}_seg.png`);
-    const graph = buildSegmentationGraph({ image, samCheckpoint: models.sam, layers, prefix: `strata/${p.id}_seg`, refineIterations: memoryTight() ? 1 : 2 });
+    const graph = buildSegmentationGraph({ image, samCheckpoint: models.sam, layers, prefix: `strata/${p.id}_seg`, refineIterations: memoryTight() ? 1 : 2, scene: sceneOf(p.meta.zone) });
     applyDefaults(graph.prompt, info);
     const problems = validatePrompt(graph.prompt, info);
     if (problems.length) throw new Error(problems[0]);
@@ -197,7 +197,7 @@ export async function runSegmentation(only?: LayerId[]) {
       const d = ctx2d(c).getImageData(0, 0, c.width, c.height).data;
       let on = 0;
       for (let i = 3; i < d.length; i += 16) if (d[i] > 127) on++;
-      if (on / (d.length / 16) > 0.002) found.push(LAYER_INFO[layer].label);
+      if (on / (d.length / 16) > 0.002) found.push(layerInfo(layer, sceneOf(p.meta.zone)).label);
     }
     masksChanged(LAYERS, "auto");
     toast(found.length ? `Detected: ${found.join(", ")}. Refine with the brush; Ctrl+Z to undo.` : "Nothing detected. Paint the surfaces by hand.", found.length ? "success" : "info");
@@ -275,7 +275,7 @@ export async function generate() {
           maskToBwBlob(eff, work.width, work.height).then((blob) => comfy().upload(blob, `${p.id}_mask_${b}.png`)),
           Promise.all(bucket.refs.map((r) => uploadRef(b, r))),
         ]);
-        return { bucket: b, mask, refs, weight: bucket.weight, prompt: surfacePrompt(b, material, bucket.refs[0]?.analysis, bucket.note) };
+        return { bucket: b, mask, refs, weight: bucket.weight, prompt: surfacePrompt(b, material, bucket.refs[0]?.analysis, bucket.note, sceneOf(p.meta.zone)) };
       }),
     );
     // Protected structure, and furniture that gets no finish in this render, must stay original even
@@ -467,7 +467,7 @@ export async function exportProposal(paper: "A4" | "A3", format: "pdf" | "html")
       const bucket = p.buckets[b];
       const swatches: string[] = [];
       for (const r of bucket.refs.slice(0, 3)) swatches.push(await jpegDataUrl((await getBlob(r.blobId))!, 480, 0.85));
-      schedule.push({ bucket: b, label: LAYER_INFO[b].label, material, swatches, colour: bucket.refs[0]?.analysis?.swatch ?? null });
+      schedule.push({ bucket: b, label: layerInfo(b, sceneOf(p.meta.zone)).label, material, swatches, colour: bucket.refs[0]?.analysis?.swatch ?? null });
     }
     const boq = computeBoq(p.meta, selections);
     const payload: ProposalPayload = {

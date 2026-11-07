@@ -17,6 +17,28 @@ Structure-locked AI material rendering for architects and interior designers, ru
 
 Rendered on a CPU-only i5-7400 with 8 GB RAM (Lite profile, 768 px, 6 LCM steps). Window, mullions, radiator and sofa stay pixel-identical because they are outside the masks. Every wall, corner and the ceiling stay where they were: `scripts/structure-check.mts` scores the third image 0.998 against the base (left wall 0.999). The small wall sockets on the left were inside the walls mask and got the new finish; paint fixtures like these into **Protected** to keep them.
 
+## Exterior mode
+
+Switch a project to **Exterior** (Materials or Project tab) to re-finish a building instead of a room. The same pipeline runs (masks, structure lock, depth lock, High quality, 4K), with exterior layers and data:
+
+| Layer (key) | Interior | Exterior |
+|---|---|---|
+| `1` | Floor | **Ground**: driveway, paving, yard |
+| `2` | Walls | **Facade** |
+| `3` | Ceiling | **Roof** |
+| `4` | Furniture | **Landscape**: shrubs and planting beds (off by default) |
+| `0` | Protected | **Protected**: windows, doors, railings, columns, brick pillars, eaves, fences, sky, trees, vehicles, people |
+
+- **Materials:** weather-rated exterior systems only (elastomeric paint, fibre-cement plank, stone veneer, capped WPC; long-span, stone-coated steel and clay roofing; pavers, washout and granite paving; carabao grass and planting beds). Interior finishes are never offered outside, and switching scene clears the other scene's materials.
+- **Styles:** Modern tropical, Clean white, Mediterranean, Stone & timber.
+- **Costing:** facade = facade length × height less openings; roof, paving and landscape from their own areas in the Project tab. Exterior guidelines cover wind-zone fixing, drainage falls, sealants and rain-free curing.
+
+| Base | Modern tropical (High, 75%) |
+|---|---|
+| ![house before](docs/samples/exterior-before.jpg) | ![house after](docs/samples/exterior-after.jpg) |
+
+Rendered on an RTX 3070 (8 GB) in about 35 s. Everything outside the masks (sky, trees, fence) is pixel-identical to the base; windows, door, railings, brick piers and the gable trim were protected by Auto-detect; `scripts/structure-check.mts` scores it 0.986 (the ground plane changes most, from bare earth to pavers). Auto-detect missed the leftmost porch column in shadow; paint anything it misses into **Protected**. Photo: USDA, public domain ([credits](docs/samples/CREDITS.md)).
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the pipeline and how it departs from the original blueprint.
 
 ## Requirements

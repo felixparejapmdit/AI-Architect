@@ -1,6 +1,6 @@
 import { computeBoq, php, type Boq } from "./boq";
-import { isWetZone, LAYER_INFO } from "./buckets";
-import type { Material } from "./materials";
+import { isWetZone, layerInfo, sceneOf } from "./buckets";
+import { materialScene, type Material } from "./materials";
 import type { BucketId, Project } from "./types";
 
 /**
@@ -81,7 +81,7 @@ function cheaperAlternative(project: Project, library: Material[], bucket: Bucke
   const wet = isWetZone(project.meta.zone);
   let best: { material: Material; subtotal: number } | null = null;
   for (const m of library) {
-    if (m.id === current.id || m.unit !== current.unit || !m.buckets.includes(bucket) || (wet && !m.wetOk)) continue;
+    if (m.id === current.id || m.unit !== current.unit || !m.buckets.includes(bucket) || (wet && !m.wetOk) || materialScene(m) !== sceneOf(project.meta.zone)) continue;
     if (m.zones !== "any" && !m.zones.includes(project.meta.zone)) continue;
     const subtotal = computeBoq(project.meta, { [bucket]: m }).sections[0]?.subtotal ?? Infinity;
     if (subtotal < currentSubtotal && (!best || subtotal < best.subtotal)) best = { material: m, subtotal };
@@ -127,11 +127,20 @@ export function proposalChecks(project: Project, library: Material[], boq: Boq, 
       }
     }
   }
-  if (m.floorArea <= 0) checks.push({ level: "warn", text: "Floor area is 0 m², so every quantity is empty. Enter the room size in the Project tab." });
+  const scene = sceneOf(m.zone);
+  if (scene === "interior" && m.floorArea <= 0) checks.push({ level: "warn", text: "Floor area is 0 m², so every quantity is empty. Enter the room size in the Project tab." });
+  if (scene === "exterior") {
+    const missing = [
+      project.buckets.walls.materialId && (m.perimeter <= 0 || m.ceilingHeight <= 0) && "facade length and height",
+      project.buckets.ceiling.materialId && !(m.roofArea && m.roofArea > 0) && "roof area",
+      project.buckets.floor.materialId && m.floorArea <= 0 && "paving area",
+    ].filter(Boolean);
+    if (missing.length) checks.push({ level: "warn", text: `Enter the ${missing.join(", ")} in the Project tab; until then those finishes have no quantity.` });
+  }
   for (const b of ["floor", "walls", "ceiling"] as const) {
     const bucket = project.buckets[b];
     const masked = project.masks[b].coverage > 0.001;
-    const label = LAYER_INFO[b].label;
+    const label = layerInfo(b, scene).label;
     if (bucket.enabled && masked && !bucket.materialId) checks.push({ level: "warn", text: `${label} is masked but has no material, so it is rendered but left out of the BOQ.` });
     if (project.base && bucket.enabled && bucket.materialId && !masked) checks.push({ level: "info", text: `${label} is costed but not masked, so the render does not show it.` });
   }

@@ -1,15 +1,15 @@
 "use client";
 
 import { create } from "zustand";
-import type { BucketId, BucketState, LayerId, PipelineProfile, Project, ProjectSummary, ReferenceImage, ZoneType } from "./types";
-import { BUCKETS, LAYERS } from "./buckets";
-import { MATERIALS, suggestMaterial, type Material } from "./materials";
+import type { BucketId, BucketState, LayerId, PipelineProfile, Project, ProjectSummary, ReferenceImage, Scene, ZoneType } from "./types";
+import { BUCKETS, DEFAULT_ZONE, LAYERS, layerInfo, sceneOf } from "./buckets";
+import { MATERIALS, materialScene, suggestMaterial, type Material } from "./materials";
 import { STYLE_PRESETS, styleMaterialFor } from "./styles";
 import * as db from "./db";
 import { liveCoverage, masks } from "./masks";
 import { analyzeTexture } from "./texture";
 import { bitmapFromBlob, fitWithin, pixelsOf, resizeBlob } from "./image";
-import { checkpointsForProfile, defaultSettings, migrateSettings, PROFILES } from "./workflow/profiles";
+import { checkpointsForProfile, defaultSettings, migrateSettings, PROFILES, upgradeForGpu } from "./workflow/profiles";
 import type { ObjectInfo } from "./workflow/graph";
 
 export interface DoctorInfo {
@@ -172,9 +172,24 @@ export async function refreshDoctor(force = false) {
     if (doctor.online && !doctor.objectInfo && prev?.infoKey === doctor.infoKey) doctor.objectInfo = prev?.objectInfo;
     set({ doctor });
     if (prev && prev.online !== doctor.online) toast(doctor.online ? "ComfyUI connected" : "ComfyUI went offline", doctor.online ? "success" : "error");
+    // The device is only known once ComfyUI answers, which can be after the project opened.
+    applyGpuQuality();
   } catch {
     set({ doctor: { online: false, comfyUrl: "", comfyPath: "", error: "Strata server unreachable" } });
   }
+}
+
+const onGpu = () => {
+  const t = get().doctor?.device?.type;
+  return !!get().doctor?.online && !!t && t !== "cpu";
+};
+
+/** On a GPU, an open Lite project still on the CPU quality defaults renders at High quality instead. */
+function applyGpuQuality() {
+  const p = get().project;
+  if (!p || get().job || !onGpu() || !upgradeForGpu(structuredClone(p.settings))) return;
+  patchProject((d) => void upgradeForGpu(d.settings));
+  toast("GPU detected: this project now renders at High quality (1024 px, 25 steps) for sharper materials. Draft and Standard stay in the Render tab.", "info");
 }
 
 function blankProject(name: string, profile: PipelineProfile, checkpoint: string): Project {
@@ -188,7 +203,7 @@ function blankProject(name: string, profile: PipelineProfile, checkpoint: string
     base: null,
     buckets: Object.fromEntries(BUCKETS.map((b) => [b, bucket(b)])) as Project["buckets"],
     masks: Object.fromEntries(LAYERS.map((l) => [l, { blobId: null, source: null, coverage: 0 }])) as Project["masks"],
-    settings: defaultSettings(profile, checkpoint),
+    settings: defaultSettings(profile, checkpoint, { gpu: onGpu() }),
     renders: [],
     activeRenderId: null,
   };
@@ -227,6 +242,7 @@ export async function openProject(id: string) {
   await db.kvSet("lastProject", id);
   await masks.load(p);
   set({ maskVersion: get().maskVersion + 1, fitSignal: get().fitSignal + 1 });
+  applyGpuQuality();
 }
 
 export async function deleteProject(id: string) {
@@ -295,7 +311,7 @@ export async function addReferences(bucket: BucketId, files: File[]) {
     refs.push({ id: db.uid("r_"), blobId: await db.putBlob(stored), name: f.name, analysis, sig });
   }
   if (!refs.length) {
-    toast(`That image is already a ${bucket} reference.`, "info");
+    toast(`That image is already a ${surfaceName(bucket)} reference.`, "info");
     return;
   }
   patchProject((d) => {
@@ -306,7 +322,7 @@ export async function addReferences(bucket: BucketId, files: File[]) {
   });
   const p = get().project!;
   const m = get().library.find((x) => x.id === p.buckets[bucket].materialId);
-  toast(`${refs.length} reference${refs.length > 1 ? "s" : ""} added to ${bucket}${m ? ` → ${m.name}` : ""}${duplicates ? ` (${duplicates} duplicate skipped)` : ""}`, "success");
+  toast(`${refs.length} reference${refs.length > 1 ? "s" : ""} added to ${surfaceName(bucket)}${m ? ` → ${m.name}` : ""}${duplicates ? ` (${duplicates} duplicate skipped)` : ""}`, "success");
 }
 
 export async function removeReference(bucket: BucketId, refId: string) {
@@ -331,7 +347,7 @@ export function applyStyle(presetId: string) {
       if (!id) continue;
       d.buckets[b].materialId = id;
       d.buckets[b].materialPinned = true;
-      applied.push(`${b}: ${library.find((m) => m.id === id)?.name ?? id}`);
+      applied.push(`${layerInfo(b, sceneOf(d.meta.zone)).label}: ${library.find((m) => m.id === id)?.name ?? id}`);
     }
   });
   toast(applied.length ? `${preset.name}: ${applied.join(" · ")}` : "Enable a surface first", applied.length ? "success" : "info");
@@ -344,16 +360,42 @@ export function setMaterial(bucket: BucketId, materialId: string | null) {
   });
 }
 
+/** The surface as the user sees it: "roof" on an exterior, "ceiling" in a room. */
+const surfaceName = (b: BucketId) => layerInfo(b, sceneOf(get().project?.meta.zone ?? "living")).label.toLowerCase();
+
 export function setZone(zone: ZoneType) {
+  const library = get().library;
   patchProject((d) => {
+    const sceneChanged = sceneOf(d.meta.zone) !== sceneOf(zone);
     d.meta.zone = zone;
+    if (sceneChanged && sceneOf(zone) === "exterior" && d.meta.roofArea === undefined) {
+      // Starter measurements for a typical house front, so the estimate is not empty; edit in Project.
+      Object.assign(d.meta, { floorArea: 30, ceilingHeight: 4, perimeter: 12, openingsPct: 20, roofArea: 100, landscapeArea: 15 });
+    }
     for (const b of BUCKETS) {
       const bucket = d.buckets[b];
+      const current = library.find((m) => m.id === bucket.materialId);
+      // An interior finish cannot stay on a facade (or the reverse), even if the user picked it.
+      if (sceneChanged && current && materialScene(current) !== sceneOf(zone)) {
+        bucket.materialId = null;
+        bucket.materialPinned = false;
+      }
       if (!bucket.materialPinned && (bucket.refs.length || bucket.materialId)) {
-        bucket.materialId = suggestMaterial(b, zone, bucket.refs[0]?.analysis, get().library).materialId;
+        bucket.materialId = suggestMaterial(b, zone, bucket.refs[0]?.analysis, library).materialId;
       }
     }
   });
+}
+
+/** The open project's scene; interior when nothing is open. */
+export const useScene = () => useStore((s) => sceneOf(s.project?.meta.zone ?? "living"));
+
+/** Interior or exterior: switches the project to that scene's default zone. */
+export function setScene(scene: Scene) {
+  const p = get().project;
+  if (!p || sceneOf(p.meta.zone) === scene) return;
+  setZone(DEFAULT_ZONE[scene]);
+  toast(scene === "exterior" ? "Exterior: layers are Ground, Facade, Roof and Landscape. Run Auto-detect again for this scene." : "Interior: layers are Floor, Walls, Ceiling and Furniture. Run Auto-detect again for this scene.", "info");
 }
 
 export function setProfile(profile: PipelineProfile) {
@@ -361,7 +403,7 @@ export function setProfile(profile: PipelineProfile) {
   const ckpt = checkpointsForProfile(profile, doctor?.objectInfo ?? null)[0] ?? "";
   patchProject((d) => {
     const keep = { seed: d.settings.seed, extraPrompt: d.settings.extraPrompt, negativePrompt: d.settings.negativePrompt };
-    d.settings = { ...defaultSettings(profile, ckpt), ...keep };
+    d.settings = { ...defaultSettings(profile, ckpt, { gpu: onGpu() }), ...keep };
   });
 }
 
